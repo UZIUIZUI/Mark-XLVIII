@@ -160,7 +160,22 @@ def create_folder(path: str, name: str = "") -> str:
         return f"Could not create folder: {e}"
 
 
-def delete_file(path: str, name: str = "") -> str:
+_CONFIRM_THRESHOLD_ITEMS = 5
+
+
+def _folder_item_count(target: Path) -> int:
+    try:
+        count = 0
+        for _ in target.rglob("*"):
+            count += 1
+            if count > _CONFIRM_THRESHOLD_ITEMS:
+                break
+        return count
+    except Exception:
+        return 0
+
+
+def delete_file(path: str, name: str = "", confirm: bool = False) -> str:
     try:
         base   = _resolve_path(path)
         target = (base / name) if name else base
@@ -176,6 +191,14 @@ def delete_file(path: str, name: str = "") -> str:
         }
         if target.resolve() in {p.resolve() for p in protected}:
             return f"Protected directory, cannot delete: {target.name}"
+
+        if target.is_dir() and not confirm:
+            item_count = _folder_item_count(target)
+            if item_count > _CONFIRM_THRESHOLD_ITEMS:
+                return (
+                    f"'{target.name}' contains more than {_CONFIRM_THRESHOLD_ITEMS} items. "
+                    f"Confirm deletion by calling delete again with confirm=true."
+                )
 
         return _safe_trash(target)
 
@@ -492,7 +515,7 @@ def file_controller(
             return create_folder(path, name=name)
 
         elif action == "delete":
-            return delete_file(path, name=name)
+            return delete_file(path, name=name, confirm=bool(params.get("confirm", False)))
 
         elif action == "move":
             return move_file(path, name=name, destination=params.get("destination", ""))

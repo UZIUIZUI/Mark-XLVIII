@@ -1,4 +1,5 @@
 #desktop.py
+import ast
 import os
 import sys
 import json
@@ -80,6 +81,49 @@ def _build_sandbox() -> dict:
     return sandbox
 
 
+_FORBIDDEN_NAMES = {
+    "exec", "eval", "compile", "open", "__import__",
+    "globals", "locals", "vars", "getattr", "setattr", "delattr",
+    "input", "breakpoint", "help", "memoryview",
+}
+
+_MAX_GENERATED_CODE_LEN = 4000
+
+
+def _validate_generated_code(code: str) -> str | None:
+    """
+    Static AST check on AI-generated code before it is ever exec()'d.
+    Returns an error string if the code is rejected, None if it looks safe.
+    This is defense-in-depth, not a real sandbox — the restricted builtins
+    dict alone is escapable via __class__/__subclasses__ tricks, so nothing
+    generated here should be trusted with real destructive power.
+    """
+    if len(code) > _MAX_GENERATED_CODE_LEN:
+        return "Generated code rejected: too long."
+
+    try:
+        tree = ast.parse(code, mode="exec")
+    except SyntaxError as e:
+        return f"Generated code rejected: syntax error ({e})."
+
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            return "Generated code rejected: import statements are not allowed."
+
+        if isinstance(node, (ast.Attribute, ast.Name)):
+            name = node.attr if isinstance(node, ast.Attribute) else node.id
+            if name.startswith("__") and name.endswith("__"):
+                return f"Generated code rejected: dunder access '{name}' is not allowed."
+            if isinstance(node, ast.Name) and name in _FORBIDDEN_NAMES:
+                return f"Generated code rejected: use of '{name}' is not allowed."
+
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            if node.func.id in _FORBIDDEN_NAMES:
+                return f"Generated code rejected: call to '{node.func.id}' is not allowed."
+
+    return None
+
+
 def _execute_generated_code(code: str, player=None) -> str:
     if not code or code.strip() == "UNSAFE":
         return "This action cannot be performed safely."
@@ -88,6 +132,13 @@ def _execute_generated_code(code: str, player=None) -> str:
     if code.startswith("```"):
         lines = code.split("\n")
         code  = "\n".join(lines[1:-1]).strip()
+
+    rejection = _validate_generated_code(code)
+    if rejection:
+        print(f"[Desktop] ⛔ {rejection}\nCode:\n{code[:300]}")
+        if player:
+            player.write_log(f"[Desktop] Blocked unsafe generated code: {rejection}")
+        return rejection
 
     sandbox      = _build_sandbox()
     output_lines = []

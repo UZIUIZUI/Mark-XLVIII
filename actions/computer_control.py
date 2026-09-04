@@ -178,9 +178,19 @@ def _smart_type(text: str, clear_first: bool = True) -> str:
     return f"Smart-typed: {text[:60]}{'…' if len(text) > 60 else ''}"
 
 
+def _clamp_to_screen(x: int, y: int) -> tuple[int, int]:
+    _require_pyautogui()
+    w, h = pyautogui.size()
+    return max(0, min(int(x), w - 1)), max(0, min(int(y), h - 1))
+
+
 def _click(x=None, y=None, button: str = "left", clicks: int = 1) -> str:
     _require_pyautogui()
+    if button not in ("left", "right", "middle"):
+        button = "left"
+    clicks = max(1, min(int(clicks), 2))
     if x is not None and y is not None:
+        x, y = _clamp_to_screen(x, y)
         pyautogui.click(x, y, button=button, clicks=clicks)
         return f"{'Double-c' if clicks == 2 else 'C'}licked ({x}, {y}) [{button}]"
     pyautogui.click(button=button, clicks=clicks)
@@ -209,12 +219,17 @@ def _scroll(direction: str = "down", amount: int = 3) -> str:
 
 def _move(x: int, y: int, duration: float = 0.3) -> str:
     _require_pyautogui()
+    x, y = _clamp_to_screen(x, y)
+    duration = max(0.0, min(float(duration), 5.0))
     pyautogui.moveTo(x, y, duration=duration)
     return f"Mouse → ({x}, {y})"
 
 
 def _drag(x1: int, y1: int, x2: int, y2: int, duration: float = 0.5) -> str:
     _require_pyautogui()
+    x1, y1 = _clamp_to_screen(x1, y1)
+    x2, y2 = _clamp_to_screen(x2, y2)
+    duration = max(0.0, min(float(duration), 5.0))
     pyautogui.moveTo(x1, y1, duration=0.2)
     pyautogui.dragTo(x2, y2, duration=duration, button="left")
     return f"Dragged ({x1},{y1}) → ({x2},{y2})"
@@ -255,12 +270,18 @@ def _clear_field() -> str:
     pyautogui.press("delete")
     return "Field cleared"
 
+def _escape_for_script(value: str) -> str:
+    """Strip characters that could break out of a quoted PowerShell/AppleScript literal."""
+    return re.sub(r'["\'`$\\]', "", value)[:200]
+
+
 def _focus_window(title: str) -> str:
     os_name = _get_os()
+    safe_title = _escape_for_script(title)
 
     if os_name == "windows":
         try:
-            script = f'(New-Object -ComObject WScript.Shell).AppActivate("{title}")'
+            script = f'(New-Object -ComObject WScript.Shell).AppActivate("{safe_title}")'
             subprocess.run(
                 ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
                 capture_output=True, timeout=5, **_WIN_HIDE,
@@ -273,7 +294,7 @@ def _focus_window(title: str) -> str:
     if os_name == "mac":
         script = (
             f'tell application "System Events" to '
-            f'set frontmost of (first process whose name contains "{title}") to true'
+            f'set frontmost of (first process whose name contains "{safe_title}") to true'
         )
         try:
             subprocess.run(
