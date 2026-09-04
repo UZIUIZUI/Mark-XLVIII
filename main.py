@@ -532,6 +532,8 @@ class JarvisLive:
         self._vision_close_pending = False   # True after vision injected; next turn_complete closes camera
         self._vision_last_time     = 0.0     # monotonic time of last screen_process call (cooldown guard)
         self._vision_busy          = False   # True while a vision capture/inject cycle is in flight
+        self._vision_awaiting_answer = False # True right after the image was sent; next full_out is the description
+        self._vision_answer_angle    = "screen"
         self._interrupted          = False   # True while draining audio after user interrupt
         self.ui.on_text_command   = self._on_text_command
         self.ui.on_remote_clicked = self._make_remote_key
@@ -912,6 +914,16 @@ class JarvisLive:
                                         "text": full_out,
                                         "ts": datetime.now().isoformat(),
                                     }))
+                                if self._vision_awaiting_answer:
+                                    try:
+                                        from memory.screen_memory import get_screen_memory
+                                        get_screen_memory().add_memory(
+                                            app_or_website="Kamera" if self._vision_answer_angle == "camera" else "Bildschirm",
+                                            summary=full_out,
+                                        )
+                                    except Exception as e:
+                                        print(f"[ScreenMemory] ⚠️  Could not store memory: {e}")
+                            self._vision_awaiting_answer = False
                             out_buf = []
 
                             # Vision injection: model finished tool-response turn → now send the image
@@ -928,6 +940,10 @@ class JarvisLive:
                                     ]},
                                     turn_complete=True,
                                 )
+                                # The NEXT turn_complete's full_out is JARVIS describing this image —
+                                # store it as text-only screen memory (never the image itself).
+                                self._vision_awaiting_answer = True
+                                self._vision_answer_angle    = angle
                                 # Mark next turn_complete behaviour depending on angle
                                 if self._vision_cam_active:
                                     # Camera: keep busy until JARVIS finishes speaking the answer

@@ -214,6 +214,7 @@ class _VisionSession:
         self._ready_evt:  threading.Event                     = threading.Event()
         self._player                                           = None
         self._lock:       threading.Lock                       = threading.Lock()
+        self._last_angle: str                                  = "screen"
 
     def start(self, player=None, timeout: float = 25.0) -> None:
         with self._lock:
@@ -233,10 +234,11 @@ class _VisionSession:
             raise RuntimeError(f"Vision session did not connect within {timeout}s.")
         print("[Vision] ✅ Session ready")
 
-    def analyze(self, image_bytes: bytes, mime_type: str, user_text: str) -> None:
+    def analyze(self, image_bytes: bytes, mime_type: str, user_text: str, angle: str = "screen") -> None:
         if not self._loop or not self._out_queue:
             print("[Vision] ⚠️  Session not started — dropping request")
             return
+        self._last_angle = angle
         asyncio.run_coroutine_threadsafe(
             self._out_queue.put((image_bytes, mime_type, user_text)),
             self._loop,
@@ -339,11 +341,20 @@ class _VisionSession:
                         transcript.append(chunk)
 
                 if sc.turn_complete:
-                    if transcript and self._player:
+                    if transcript:
                         full = re.sub(r"\s+", " ", " ".join(transcript)).strip()
                         if full:
-                            self._player.write_log(f"Jarvis: {full}")
+                            if self._player:
+                                self._player.write_log(f"Jarvis: {full}")
                             print(f"[Vision] 💬 {full}")
+                            try:
+                                from memory.screen_memory import get_screen_memory
+                                get_screen_memory().add_memory(
+                                    app_or_website="Kamera" if self._last_angle == "camera" else "Bildschirm",
+                                    summary=full,
+                                )
+                            except Exception as e:
+                                print(f"[ScreenMemory] ⚠️  Could not store memory: {e}")
                     transcript = []
                     # Auto-close camera ~2s after JARVIS finishes speaking
                     if self._player and hasattr(self._player, "stop_camera_stream"):
@@ -437,7 +448,7 @@ def screen_process(
         print(f"[Vision] ❌ Capture error: {e}")
         return False
 
-    _session.analyze(image_bytes, mime_type, user_text)
+    _session.analyze(image_bytes, mime_type, user_text, angle=angle)
     return True
 
 
