@@ -54,8 +54,8 @@ def _get_os() -> str:
     return _load_config().get("os_system", _platform_os()).lower()
 
 
-def _get_api_key() -> str:
-    return _load_config().get("gemini_api_key", "")
+def _get_vision_model() -> str:
+    return _load_config().get("vision_model", "llava")
 
 _SAFE_SCREENSHOT_ROOTS = (
     Path.home(),
@@ -311,23 +311,25 @@ def _focus_window(title: str) -> str:
     return f"focus_window: unknown OS '{os_name}'"
 
 def _screen_find(description: str) -> tuple[int, int] | None:
-    api_key = _get_api_key()
-    if not api_key:
-        print("[ComputerControl] ⚠️ No API key for screen_find")
-        return None
-
+    """
+    Locates a UI element on screen via a local vision-capable Ollama model
+    (e.g. "llava", "qwen2.5vl") — no API key, no quota/rate limits.
+    Configure the model with "vision_model" in config/api_keys.json.
+    """
     try:
-        from google import genai
-        from google.genai import types as gtypes
+        import base64
+        import requests
+        from core.llm_client import get_llm_settings
 
         _require_pyautogui()
         w, h  = pyautogui.size()
         img   = pyautogui.screenshot()
         buf   = io.BytesIO()
         img.save(buf, format="PNG")
-        image_bytes = buf.getvalue()
+        image_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
 
-        client = genai.Client(api_key=api_key)
+        url, _ = get_llm_settings()
+        model  = _get_vision_model()
         prompt = (
             f"This is a screenshot of a {w}×{h} pixel screen. "
             f"Locate the UI element described as: '{description}'. "
@@ -335,15 +337,19 @@ def _screen_find(description: str) -> tuple[int, int] | None:
             f"If the element is not visible, reply: NOT_FOUND"
         )
 
-        response = client.models.generate_content(
-            model="gemini-2.5-flash-lite",
-            contents=[
-                gtypes.Part.from_bytes(data=image_bytes, mime_type="image/png"),
-                prompt,
-            ],
+        resp = requests.post(
+            f"{url}/api/chat",
+            json={
+                "model":    model,
+                "messages": [{"role": "user", "content": prompt, "images": [image_b64]}],
+                "stream":   False,
+                "options":  {"num_predict": 20},
+            },
+            timeout=60,
         )
+        resp.raise_for_status()
+        text = (resp.json().get("message", {}).get("content") or "").strip()
 
-        text = (response.text or "").strip()
         if "NOT_FOUND" in text.upper():
             return None
 
