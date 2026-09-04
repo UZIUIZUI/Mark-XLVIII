@@ -80,9 +80,11 @@ def _load_system_prompt() -> str:
         return PROMPT_PATH.read_text(encoding="utf-8")
     except Exception:
         return (
-            "You are JARVIS, Tony Stark's AI assistant. "
-            "Be concise, direct, and always use the provided tools to complete tasks. "
-            "Never simulate or guess results — always call the appropriate tool."
+            "You are J.A.R.V.I.S., the highly intelligent, proactive AI assistant of crazy (Sir). "
+            "British-polite, composed, dryly witty — never sycophantic; push back on risky or "
+            "inefficient plans instead of just agreeing. Always address the user as 'Sir', in "
+            "every language. Be concise, direct, and always use the provided tools to complete "
+            "tasks. Never simulate or guess results — always call the appropriate tool."
         )
 
 _CTRL_RE = re.compile(r"<ctrl\d+>", re.IGNORECASE)
@@ -766,9 +768,10 @@ class JarvisLive:
                     self._pending_vision = (img_b, mime_t, user_text, angle)
                     result = (
                         f"[VISION_ACTIVE] {_stall.capitalize()} captured. "
-                        f"Immediately say ONE natural sentence in the user's language "
-                        f"(e.g. 'Looking at your {_stall} now, sir' / "
-                        f"'{'Kameraya' if _stall == 'camera' else 'Ekrana'} bakıyorum efendim'). "
+                        f"Immediately say ONE natural sentence in the user's language, "
+                        f"always addressing the user as 'Sir' regardless of language "
+                        f"(e.g. 'Looking at your {_stall} now, Sir' / "
+                        f"'{'Kameraya' if _stall == 'camera' else 'Ekrana'} bakıyorum Sir'). "
                         f"Do NOT describe or guess content — the actual image arrives in the NEXT message."
                     )
 
@@ -1136,7 +1139,9 @@ class JarvisLive:
 
         # ── Phase 1: instant greeting — one simple sentence ──────────────────
         lang_clause = f" Respond in {lang}." if lang else ""
-        name_clause = f" Address the user as {name}." if name else ""
+        # Note: the user's first name is context, not an address override —
+        # ADDRESS in core/prompt.txt always says "Sir" regardless of language.
+        name_clause = f" The user's name is {name}, for context only." if name else ""
         p1 = (
             f"Greet the user, mention it is {time_str}, and say you are fetching today's news headlines now. "
             f"One short sentence only. Do not call any tools.{lang_clause}{name_clause}"
