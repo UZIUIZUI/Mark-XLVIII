@@ -559,6 +559,10 @@ class JarvisLive:
         self._vision_busy          = False   # True while a vision capture/inject cycle is in flight
         self._vision_awaiting_answer = False # True right after the image was sent; next full_out is the description
         self._vision_answer_angle    = "screen"
+
+        self._session_handle    = None  # Live API session-resumption handle; None = start fresh
+        self._ever_connected    = False # True once the first successful connect has happened
+        self._last_outbound_time = 0.0  # monotonic time of the last realtime_input send (keepalive)
         self._interrupted          = False   # True while draining audio after user interrupt
         self.ui.on_text_command   = self._on_text_command
         self.ui.on_remote_clicked = self._make_remote_key
@@ -663,7 +667,10 @@ class JarvisLive:
             input_audio_transcription={},
             system_instruction="\n".join(parts),
             tools=[{"function_declarations": TOOL_DECLARATIONS}],
-            session_resumption=types.SessionResumptionConfig(),
+            # Resume the previous session if we still have a valid handle; otherwise
+            # (None) the API starts a fresh session but keeps issuing resumption
+            # updates we can use for the *next* reconnect.
+            session_resumption=types.SessionResumptionConfig(handle=self._session_handle),
             speech_config=types.SpeechConfig(
                 voice_config=types.VoiceConfig(
                     prebuilt_voice_config=types.PrebuiltVoiceConfig(
@@ -849,6 +856,35 @@ class JarvisLive:
         while True:
             msg = await self.out_queue.get()
             await self.session.send_realtime_input(media=msg)
+            self._last_outbound_time = time.monotonic()
+
+    _KEEPALIVE_IDLE_SECS  = 20.0   # send a ping once this much silence has elapsed
+    _KEEPALIVE_CHECK_SECS = 5.0
+
+    async def _keepalive_ping(self):
+        """
+        Mic audio keeps the Live API session alive on its own — but only while
+        it's unmuted and JARVIS isn't speaking. While muted (or the user is just
+        reading, not talking), nothing gets sent for a while, and the Live API
+        can time the session out from inactivity. This sends a short silent
+        audio chunk whenever the connection has been idle too long, so genuinely
+        quiet periods don't look like a dead connection.
+        """
+        silence = b"\x00" * (int(SEND_SAMPLE_RATE * 0.1) * 2)  # 100ms of 16-bit silence
+        while True:
+            await asyncio.sleep(self._KEEPALIVE_CHECK_SECS)
+            if not self.session:
+                continue
+            idle_for = time.monotonic() - self._last_outbound_time
+            if idle_for < self._KEEPALIVE_IDLE_SECS:
+                continue
+            try:
+                await self.session.send_realtime_input(
+                    media={"data": silence, "mime_type": "audio/pcm"}
+                )
+                self._last_outbound_time = time.monotonic()
+            except Exception as e:
+                print(f"[JARVIS] ⚠️ Keepalive ping failed: {e}")
 
     async def _listen_audio(self):
         print("[JARVIS] 🎤 Mic started")
@@ -899,6 +935,27 @@ class JarvisLive:
                             _SLICE = 2400
                             for _i in range(0, len(_audio_data), _SLICE):
                                 self.audio_in_queue.put_nowait(_audio_data[_i : _i + _SLICE])
+
+                    # Session-resumption handle: Google pushes an updated handle
+                    # periodically while the session is healthy. The moment it
+                    # reports the session as NOT resumable (resumable=False/None,
+                    # or no new_handle), drop our stored handle immediately —
+                    # otherwise the next reconnect would try to resume with a
+                    # handle Google already told us is dead, fail, and only THEN
+                    # fall back to a fresh session, wasting a round trip and
+                    # spamming the log with a doomed resume attempt.
+                    if response.session_resumption_update:
+                        sru = response.session_resumption_update
+                        if sru.resumable and sru.new_handle:
+                            self._session_handle = sru.new_handle
+                            print("[JARVIS] 🔗 Session-Handle aktualisiert — Reconnect setzt das Gespräch fort.")
+                        elif self._session_handle is not None:
+                            print("[JARVIS] ⚠️  Session nicht fortsetzbar (Google meldet resumable=false) — "
+                                  "Handle verworfen, naechster Reconnect startet sauber neu.")
+                            self._session_handle = None
+
+                    if response.go_away:
+                        print(f"[JARVIS] ⚠️  GoAway — Server schliesst in {response.go_away.time_left}, reconnecte danach.")
 
                     if response.server_content:
                         sc = response.server_content
@@ -1251,7 +1308,8 @@ class JarvisLive:
 
         while True:
             try:
-                print("[JARVIS] Connecting...")
+                is_reconnect = self._ever_connected
+                print("[JARVIS] Reconnecting..." if is_reconnect else "[JARVIS] Connecting...")
                 self.ui.set_state("THINKING")
                 config = self._build_config()
 
@@ -1277,10 +1335,18 @@ class JarvisLive:
                     self._vision_busy          = False
                     self._vision_last_time     = 0.0
                     self._interrupted          = False
+                    self._last_outbound_time   = time.monotonic()
 
-                    print("[JARVIS] Connected.")
                     self.ui.set_state("LISTENING")
-                    self.ui.write_log("SYS: JARVIS online.")
+                    if is_reconnect:
+                        # Background reconnect — quiet console note only, no UI
+                        # "online" spam the user has already seen once.
+                        print("[JARVIS] Reconnected"
+                              + (" (session resumed)." if self._session_handle else "."))
+                    else:
+                        print("[JARVIS] Connected.")
+                        self.ui.write_log("SYS: JARVIS online.")
+                    self._ever_connected = True
 
                     if self._dashboard:
                         await self._dashboard.broadcast({"type": "status", "state": "active"})
@@ -1289,6 +1355,7 @@ class JarvisLive:
                     tg.create_task(self._listen_audio())
                     tg.create_task(self._receive_audio())
                     tg.create_task(self._play_audio())
+                    tg.create_task(self._keepalive_ping())
                     tg.create_task(self._run_system_monitor())
                     tg.create_task(self._run_proactive_mode())
                     if self._dashboard:
