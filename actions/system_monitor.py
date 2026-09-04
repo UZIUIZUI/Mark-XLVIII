@@ -134,6 +134,95 @@ def get_system_status() -> dict:
     }
 
 
+_PROTECTED_PROCESS_NAMES = {
+    "system", "system idle process", "registry", "smss.exe", "csrss.exe",
+    "wininit.exe", "winlogon.exe", "services.exe", "lsass.exe", "svchost.exe",
+    "explorer.exe", "dwm.exe", "fontdrvhost.exe", "sihost.exe",
+    "systemd", "systemd-journald", "systemd-logind", "kthreadd", "init",
+    "launchd", "kernel_task", "windowserver",
+}
+
+
+def list_processes(sort_by: str = "cpu", limit: int = 15) -> str:
+    """Top N processes by CPU or memory usage."""
+    limit = max(1, min(int(limit), 50))
+    sort_by = sort_by.lower().strip()
+    if sort_by not in ("cpu", "ram", "memory"):
+        sort_by = "cpu"
+
+    procs = []
+    for p in psutil.process_iter(["pid", "name", "cpu_percent", "memory_percent"]):
+        try:
+            info = p.info
+            procs.append(info)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+
+    key = "memory_percent" if sort_by in ("ram", "memory") else "cpu_percent"
+    procs.sort(key=lambda i: i.get(key) or 0.0, reverse=True)
+    top = procs[:limit]
+
+    if not top:
+        return "No process information available."
+
+    label = "RAM" if key == "memory_percent" else "CPU"
+    lines = [f"Top {len(top)} processes by {label}:"]
+    for i in top:
+        cpu = i.get("cpu_percent") or 0.0
+        ram = i.get("memory_percent") or 0.0
+        lines.append(f"  PID {i['pid']:>6}  {i.get('name', '?'):<28}  CPU {cpu:5.1f}%  RAM {ram:5.1f}%")
+    return "\n".join(lines)
+
+
+def kill_process(name_or_pid: str, confirm: bool = False) -> str:
+    """
+    Terminate a process by name or PID. Refuses known critical OS processes
+    outright, and requires confirm=True whenever the match is ambiguous
+    (more than one running process shares the name).
+    """
+    name_or_pid = (name_or_pid or "").strip()
+    if not name_or_pid:
+        return "No process name or PID given."
+
+    targets = []
+    if name_or_pid.isdigit():
+        try:
+            targets = [psutil.Process(int(name_or_pid))]
+        except psutil.NoSuchProcess:
+            return f"No process with PID {name_or_pid}."
+    else:
+        for p in psutil.process_iter(["pid", "name"]):
+            try:
+                if (p.info.get("name") or "").lower() == name_or_pid.lower():
+                    targets.append(p)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+
+    if not targets:
+        return f"No running process matches '{name_or_pid}'."
+
+    blocked = [t for t in targets if (t.name() or "").lower() in _PROTECTED_PROCESS_NAMES]
+    if blocked:
+        return f"Refusing to terminate protected system process '{blocked[0].name()}'."
+
+    if len(targets) > 1 and not confirm:
+        pids = ", ".join(str(t.pid) for t in targets)
+        return (
+            f"{len(targets)} processes named '{name_or_pid}' are running (PIDs: {pids}). "
+            f"Confirm by calling again with confirm=true, or target a specific PID."
+        )
+
+    killed = []
+    for t in targets:
+        try:
+            t.terminate()
+            killed.append(str(t.pid))
+        except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+            return f"Could not terminate PID {t.pid}: {e}"
+
+    return f"Terminated process(es): {', '.join(killed)}."
+
+
 class SystemMonitor:
     """
     Stateful monitor — cooldown state persists across session reconnections.

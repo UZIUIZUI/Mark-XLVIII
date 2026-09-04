@@ -15,6 +15,9 @@ import time
 import random
 from pathlib import Path
 
+from actions.system_monitor import list_processes as _list_processes
+from actions.system_monitor import kill_process as _kill_process
+
 try:
     import pyautogui
     pyautogui.FAILSAFE = True
@@ -424,6 +427,8 @@ def computer_control(
       screen_click  — AI element finder + click
       random_data   — generate fake form data
       user_data     — pull real data from memory
+      list_processes— top processes by CPU or RAM (params: sort_by, limit)
+      kill_process  — terminate a process by name or PID (params: target, confirm)
     """
     params = parameters or {}
     action = params.get("action", "").lower().strip()
@@ -518,6 +523,16 @@ def computer_control(
             result = _random_data(dt)
             print(f"[ComputerControl] 🎲 random {dt} → {result}")
             return result
+
+        if action == "list_processes":
+            return _list_processes(
+                sort_by=params.get("sort_by", "cpu"),
+                limit=int(params.get("limit", 15)),
+            )
+
+        if action == "kill_process":
+            target = params.get("target") or params.get("name") or params.get("pid", "")
+            return _kill_process(str(target), confirm=bool(params.get("confirm", False)))
 
         if action == "user_data":
             field   = params.get("field", "name")

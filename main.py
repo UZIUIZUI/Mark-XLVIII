@@ -343,7 +343,7 @@ TOOL_DECLARATIONS = [
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "action":      {"type": "STRING", "description": "type | smart_type | click | double_click | right_click | hotkey | press | scroll | move | copy | paste | screenshot | wait | clear_field | focus_window | screen_find | screen_click | random_data | user_data"},
+                "action":      {"type": "STRING", "description": "type | smart_type | click | double_click | right_click | hotkey | press | scroll | move | copy | paste | screenshot | wait | clear_field | focus_window | screen_find | screen_click | random_data | user_data | list_processes | kill_process"},
                 "text":        {"type": "STRING", "description": "Text to type or paste"},
                 "x":           {"type": "INTEGER", "description": "X coordinate"},
                 "y":           {"type": "INTEGER", "description": "Y coordinate"},
@@ -358,6 +358,10 @@ TOOL_DECLARATIONS = [
                 "field":       {"type": "STRING",  "description": "Field for user_data: name|email|city"},
                 "clear_first": {"type": "BOOLEAN", "description": "Clear field before typing (default: true)"},
                 "path":        {"type": "STRING",  "description": "Save path for screenshot"},
+                "sort_by":     {"type": "STRING",  "description": "cpu | ram for list_processes (default: cpu)"},
+                "limit":       {"type": "INTEGER", "description": "Max processes to return for list_processes (default: 15)"},
+                "target":      {"type": "STRING",  "description": "Process name or PID for kill_process"},
+                "confirm":     {"type": "BOOLEAN", "description": "Confirm kill_process when multiple processes share the name"},
             },
             "required": ["action"]
         }
