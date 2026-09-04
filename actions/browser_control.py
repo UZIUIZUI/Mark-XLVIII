@@ -13,6 +13,7 @@ from typing import Optional
 
 from playwright.async_api import (
     async_playwright,
+    Browser,
     BrowserContext,
     Page,
     Playwright,
@@ -359,6 +360,7 @@ class _BrowserSession:
         self._ready    = threading.Event()
 
         self._pw:      Playwright     | None = None
+        self._browser: Browser        | None = None
         self._context: BrowserContext | None = None
         self._page:    Page           | None = None
 
@@ -399,12 +401,17 @@ class _BrowserSession:
                 await self._context.close()
             except Exception:
                 pass
+        if self._browser:
+            try:
+                await self._browser.close()
+            except Exception:
+                pass
         if self._pw:
             try:
                 await self._pw.stop()
             except Exception:
                 pass
-        self._context = self._page = None
+        self._browser = self._context = self._page = None
 
     async def _launch(self):
         """
@@ -509,8 +516,25 @@ class _BrowserSession:
             await asyncio.sleep(0.5)
             self._page = await self._context.new_page()
             print(f"[Browser] ✅ Launched [{label}] with JARVIS profile")
+            return
         except Exception as e2:
-            raise RuntimeError(f"Could not launch {self.browser_name}: {e2}") from e2
+            print(f"[Browser] ⚠️  JARVIS profile failed for {label}: {e2}")
+
+        # Letzter Fallback: Playwright's natives, isoliertes Chromium.
+        # Kein echtes Profil (kein Login-State, keine Extensions), aber
+        # unabhängig von installierten Browsern/Profilen — läuft immer.
+        print("[Browser] Falling back to Playwright's bundled Chromium")
+        try:
+            self._browser = await self._pw.chromium.launch(
+                headless=False,
+                args=["--no-sandbox", "--disable-dev-shm-usage"],
+            )
+            self._context = await self._browser.new_context(no_viewport=True)
+            await asyncio.sleep(0.5)
+            self._page = await self._context.new_page()
+            print("[Browser] ✅ Launched bundled Chromium (isolated, no profile)")
+        except Exception as e3:
+            raise RuntimeError(f"Could not launch {self.browser_name}: {e3}") from e3
 
 
     async def _get_page(self) -> Page:
