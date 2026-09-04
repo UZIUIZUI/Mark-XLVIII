@@ -25,3 +25,6 @@ pycaw; sys_platform == "win32"
 win10toast; sys_platform == "win32"
 pywinauto; sys_platform == "win32"
 qrcode[pil]
+faster-whisper
+python-rtmidi
+python-osc

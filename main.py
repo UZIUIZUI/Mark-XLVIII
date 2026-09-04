@@ -52,6 +52,13 @@ from actions.computer_control  import computer_control
 from actions.game_updater      import game_updater
 from actions.system_monitor    import SystemMonitor, get_system_status
 from actions.proactive         import ProactiveEngine
+from actions.process_manager   import manage_process
+from actions.local_ai          import run_local_model
+from actions.media_server      import control_media_server
+from actions.game_server       import manage_game_server
+from actions.audio_daw         import control_audio_daw
+from actions.render_jobs       import render_job_action
+from actions.vm_control        import manage_vm
 
 
 def get_base_dir():
@@ -404,6 +411,118 @@ TOOL_DECLARATIONS = [
                 "save":        {"type": "BOOLEAN", "description": "Save results to Notepad"},
             },
             "required": ["origin", "destination", "date"]
+        }
+    },
+    {
+        "name": "manage_process",
+        "description": "Start, stop, restart, check status of, or list running processes/programs by executable name, path or PID (distinct from open_app, which resolves friendly app names).",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action":       {"type": "STRING", "description": "start | stop | restart | status | list (required)"},
+                "command":      {"type": "STRING", "description": "Executable name or path, for start/restart"},
+                "args":         {"type": "ARRAY", "items": {"type": "STRING"}, "description": "CLI arguments for start/restart"},
+                "cwd":          {"type": "STRING", "description": "Working directory for start/restart"},
+                "process_name": {"type": "STRING", "description": "Process name or PID, for stop/restart/status"},
+                "confirm":      {"type": "BOOLEAN", "description": "Confirm stopping when multiple processes share the name"},
+                "sort_by":      {"type": "STRING", "description": "cpu | ram, for 'list' (default: cpu)"},
+                "limit":        {"type": "INTEGER", "description": "Max processes to return for 'list' (default: 15)"},
+            },
+            "required": ["action"]
+        }
+    },
+    {
+        "name": "run_local_model",
+        "description": "Runs a prompt on a local, offline AI model via Ollama or LM Studio, or transcribes a local audio file with offline Whisper. Use for privacy-sensitive or offline tasks instead of cloud AI.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "backend":    {"type": "STRING", "description": "ollama | lmstudio (default: ollama)"},
+                "action":     {"type": "STRING", "description": "generate | list_models | transcribe_file (default: generate)"},
+                "model":      {"type": "STRING", "description": "Model name for 'generate'/'list_models'"},
+                "prompt":     {"type": "STRING", "description": "Prompt text for 'generate'"},
+                "file_path":  {"type": "STRING", "description": "Audio file path for 'transcribe_file'"},
+                "model_size": {"type": "STRING", "description": "Whisper model size for 'transcribe_file' (default: base)"},
+            },
+            "required": ["action"]
+        }
+    },
+    {
+        "name": "control_media_server",
+        "description": "Controls a local Plex or Jellyfin media server: search the library, see what's currently playing, or refresh the library.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "server": {"type": "STRING", "description": "plex | jellyfin (required)"},
+                "action": {"type": "STRING", "description": "search | sessions | refresh_library (required)"},
+                "query":  {"type": "STRING", "description": "Search term, for 'search'"},
+            },
+            "required": ["server", "action"]
+        }
+    },
+    {
+        "name": "manage_game_server",
+        "description": "Starts, stops, restarts, checks status of, or lists configured local dedicated game servers (e.g. Minecraft, Valheim). Also bridges to Home Assistant for smart-home device control (ha_call, ha_state).",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action":      {"type": "STRING", "description": "start | stop | restart | status | list | ha_call | ha_state (required)"},
+                "server_name": {"type": "STRING", "description": "Configured game server profile name"},
+                "confirm":     {"type": "BOOLEAN", "description": "Confirm stopping when multiple processes share the name"},
+                "entity_id":   {"type": "STRING", "description": "Home Assistant entity id, e.g. light.living_room"},
+                "service":     {"type": "STRING", "description": "Home Assistant service, e.g. turn_on/turn_off/toggle"},
+            },
+            "required": ["action"]
+        }
+    },
+    {
+        "name": "control_audio_daw",
+        "description": "Sends real MIDI notes/CC/program-change messages or OSC messages to a DAW (FL Studio, Ableton Live, Bitwig, etc.) over a virtual MIDI port or OSC listener.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action":     {"type": "STRING", "description": "midi_note | midi_cc | midi_program_change | midi_list_ports | osc_send (required)"},
+                "note":       {"type": "STRING", "description": "Note name or MIDI number for midi_note, e.g. 'C4' or 60"},
+                "velocity":   {"type": "INTEGER", "description": "MIDI velocity 0-127 (default: 100)"},
+                "controller": {"type": "INTEGER", "description": "CC number for midi_cc"},
+                "value":      {"type": "INTEGER", "description": "CC value 0-127 for midi_cc"},
+                "program":    {"type": "INTEGER", "description": "Program number for midi_program_change"},
+                "channel":    {"type": "INTEGER", "description": "MIDI channel 0-15 (default: 0)"},
+                "duration":   {"type": "NUMBER",  "description": "Note-on hold time in seconds for midi_note (default: 0.3)"},
+                "port":       {"type": "STRING",  "description": "MIDI port name substring (optional)"},
+                "address":    {"type": "STRING",  "description": "OSC address for osc_send, e.g. /live/song/start_playing"},
+                "args":       {"type": "ARRAY", "items": {"type": "STRING"}, "description": "OSC arguments for osc_send"},
+            },
+            "required": ["action"]
+        }
+    },
+    {
+        "name": "render_job_action",
+        "description": "Starts a background Blender headless render job from a .blend file, or checks/cancels a previously started job.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action":        {"type": "STRING", "description": "start | status | cancel (default: start)"},
+                "project_path":  {"type": "STRING", "description": "Path to a .blend file, required for 'start'"},
+                "output_format": {"type": "STRING", "description": "png | jpg | tiff | mp4 | avi | mkv (default: png)"},
+                "frame_range":   {"type": "STRING", "description": "Single frame '10' or range '1-50'; omit for full animation"},
+                "job_id":        {"type": "STRING", "description": "Job id from 'start', required for status/cancel"},
+            },
+            "required": ["action"]
+        }
+    },
+    {
+        "name": "manage_vm",
+        "description": "Starts, stops, pauses, resumes, snapshots, or lists virtual machines via VMware (vmrun), VirtualBox (VBoxManage) or Hyper-V (PowerShell). Hypervisor is auto-detected if not specified.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "hypervisor": {"type": "STRING", "description": "vmware | virtualbox | hyperv (optional, auto-detected)"},
+                "action":     {"type": "STRING", "description": "start | stop | shutdown | pause | resume | snapshot | list (required)"},
+                "vm_name":    {"type": "STRING", "description": "VM name, for VirtualBox/Hyper-V"},
+                "vmx_path":   {"type": "STRING", "description": "Path to .vmx file, for VMware"},
+            },
+            "required": ["action"]
         }
     },
     {
@@ -788,6 +907,34 @@ class JarvisLive:
             elif name == "system_status":
                 r = await loop.run_in_executor(None, get_system_status)
                 result = str(r)
+
+            elif name == "manage_process":
+                r = await loop.run_in_executor(None, lambda: manage_process(parameters=args, player=self.ui))
+                result = r or "Done."
+
+            elif name == "run_local_model":
+                r = await loop.run_in_executor(None, lambda: run_local_model(parameters=args, player=self.ui))
+                result = r or "Done."
+
+            elif name == "control_media_server":
+                r = await loop.run_in_executor(None, lambda: control_media_server(parameters=args, player=self.ui))
+                result = r or "Done."
+
+            elif name == "manage_game_server":
+                r = await loop.run_in_executor(None, lambda: manage_game_server(parameters=args, player=self.ui))
+                result = r or "Done."
+
+            elif name == "control_audio_daw":
+                r = await loop.run_in_executor(None, lambda: control_audio_daw(parameters=args, player=self.ui))
+                result = r or "Done."
+
+            elif name == "render_job_action":
+                r = await loop.run_in_executor(None, lambda: render_job_action(parameters=args, player=self.ui))
+                result = r or "Done."
+
+            elif name == "manage_vm":
+                r = await loop.run_in_executor(None, lambda: manage_vm(parameters=args, player=self.ui))
+                result = r or "Done."
 
             elif name == "shutdown_jarvis":
                 self.ui.write_log("SYS: Shutdown requested.")
