@@ -32,6 +32,7 @@ from ui import JarvisUI
 from memory.memory_manager import (
     load_memory, update_memory, format_memory_for_prompt,
 )
+from memory.screen_memory import recall_screen_activity
 
 from actions.file_processor import file_processor
 from actions.flight_finder     import flight_finder
@@ -511,6 +512,30 @@ TOOL_DECLARATIONS = [
             "required": ["category", "key", "value"]
         }
     },
+    {
+        "name": "recall_screen_activity",
+        "description": (
+            "Recall what was seen on the screen/camera earlier via screen_process — text summaries only, "
+            "never the actual images. Use this when the user asks what they were doing/looking at "
+            "(e.g. 'What was I doing on Discord earlier?', 'What did I look at 20 minutes ago?'). "
+            "Pass 'keyword' to search all recorded history for a topic/app/website (no time limit). "
+            "Leave 'keyword' empty to just list recent activity within 'minutes'."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "keyword": {
+                    "type": "STRING",
+                    "description": "Search term to look for in app/website name or summary (e.g. 'Shopify', 'YouTube'). Leave empty for a plain recent-activity listing."
+                },
+                "minutes": {
+                    "type": "INTEGER",
+                    "description": "How far back to look when no keyword is given (default 30)."
+                },
+            },
+            "required": []
+        }
+    },
 ]
 
 # --- Plugin system ---
@@ -700,6 +725,13 @@ class JarvisLive:
             elif name == "youtube_video":
                 r = await loop.run_in_executor(None, lambda: youtube_video(parameters=args, response=None, player=self.ui))
                 result = r or "Done."
+
+            elif name == "recall_screen_activity":
+                keyword = args.get("keyword", "") or ""
+                minutes = int(args.get("minutes", 30) or 30)
+                result  = await loop.run_in_executor(
+                    None, lambda: recall_screen_activity(keyword=keyword, minutes=minutes)
+                )
 
             elif name == "screen_process":
                 import time as _t_mod

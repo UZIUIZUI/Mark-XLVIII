@@ -105,3 +105,42 @@ def get_screen_memory() -> ScreenMemory:
     if _memory is None:
         _memory = ScreenMemory()
     return _memory
+
+
+def _format_rows(rows: list[tuple]) -> str:
+    if not rows:
+        return ""
+    lines = []
+    for ts, app_or_website, summary in rows:
+        try:
+            when = datetime.fromisoformat(ts).strftime("%H:%M")
+        except Exception:
+            when = ts
+        lines.append(f"[{when}] {app_or_website}: {summary}")
+    return "\n".join(lines)
+
+
+def recall_screen_activity(keyword: str = "", minutes: int = 30, limit: int = 20) -> str:
+    """
+    Read-only query used by JARVIS's recall_screen_activity tool.
+
+    - keyword given  -> full-text search across short- AND long-term memory
+                         (search_long_term_memory covers the whole table, no time cutoff)
+    - no keyword      -> just the short-term window (last `minutes` minutes)
+
+    Returns a compact, newline-separated "[HH:MM] app/website: summary" listing,
+    most recent first, capped at `limit` rows — or a message saying nothing was found.
+    """
+    mem = get_screen_memory()
+
+    rows = mem.search_long_term_memory(keyword) if keyword.strip() else mem.get_short_term_memory(minutes)
+    rows = rows[:limit]
+
+    formatted = _format_rows(rows)
+    if not formatted:
+        return (
+            f"No screen activity found matching '{keyword}'."
+            if keyword.strip()
+            else f"No screen activity recorded in the last {minutes} minutes."
+        )
+    return formatted
