@@ -441,7 +441,9 @@ class JarvisLive:
                 data = indata.tobytes()
                 loop.call_soon_threadsafe(
                     self.out_queue.put_nowait,
-                    {"data": data, "mime_type": "audio/pcm"}
+                    # Live API rejects raw "audio/pcm" with a 1007 content-type
+                    # error — it requires the sample rate in the mime type.
+                    {"data": data, "mime_type": f"audio/pcm;rate={SEND_SAMPLE_RATE}"}
                 )
 
         try:

@@ -621,7 +621,10 @@ class DashboardServer:
                     data = await websocket.receive_bytes()
                     try:
                         self._phone_audio_queue.put_nowait(
-                            {"data": data, "mime_type": "audio/pcm"}
+                            # Must match main.py's SEND_SAMPLE_RATE (16000) and
+                            # include the rate — the Live API rejects bare
+                            # "audio/pcm" with a 1007 content-type error.
+                            {"data": data, "mime_type": "audio/pcm;rate=16000"}
                         )
                     except asyncio.QueueFull:
                         pass  # drop frame rather than block
