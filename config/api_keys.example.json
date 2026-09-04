@@ -1,0 +1,56 @@
+{
+  "_comment": "Copy this file to api_keys.json and fill in what you actually use. Every key is optional except gemini_api_key; unset keys fall back to sane defaults or simply disable that feature with a clear error message.",
+
+  "gemini_api_key": "YOUR_GEMINI_API_KEY",
+  "os_system": "windows",
+
+  "_comment_llm": "Local brain / tool-calling backend (core/llm_client.py). llm_provider: 'ollama' (native /api/chat) or 'openai' (any OpenAI-compatible server: LM Studio, Jan, LocalAI, llama.cpp server, vLLM).",
+  "llm_provider": "ollama",
+  "llm_url": "http://localhost:11434",
+  "llm_model": "llama3.2",
+
+  "_comment_local_ai_tool": "Used by actions/local_ai.py (the run_local_model tool) — can be the same servers as above or different ones.",
+  "ollama_url": "http://localhost:11434",
+  "lmstudio_url": "http://localhost:1234",
+
+  "_comment_voice": "Speech engines (core/stt.py, core/tts.py).",
+  "stt_engine": "whisper",
+  "tts_engine": "edge",
+  "tts_voice": "en-US-GuyNeural",
+  "tts_speed": 1.0,
+  "elevenlabs_api_key": "YOUR_ELEVENLABS_API_KEY",
+
+  "_comment_media": "actions/media_server.py — Plex: Settings > Network > shows your token, or see https://support.plex.tv/articles/204059436. Jellyfin: Dashboard > API Keys.",
+  "plex_url": "http://localhost:32400",
+  "plex_token": "YOUR_PLEX_TOKEN",
+  "jellyfin_url": "http://localhost:8096",
+  "jellyfin_api_key": "YOUR_JELLYFIN_API_KEY",
+
+  "_comment_game_servers": "actions/game_server.py — one entry per dedicated server you want start/stop/status/list for. 'path' is the launch script/executable, 'cwd' its working directory, 'process_name' is optional (defaults to the executable's filename) and is what stop/status match against.",
+  "game_servers": {
+    "minecraft": {
+      "path": "C:\\Servers\\minecraft\\run.bat",
+      "cwd": "C:\\Servers\\minecraft",
+      "process_name": "java.exe"
+    },
+    "valheim": {
+      "path": "/opt/valheim/start_server.sh",
+      "cwd": "/opt/valheim",
+      "process_name": "valheim_server.x86_64"
+    }
+  },
+
+  "_comment_home_assistant": "actions/game_server.py ha_call/ha_state — Home Assistant > Profile > Long-Lived Access Tokens.",
+  "home_assistant_url": "http://homeassistant.local:8123",
+  "home_assistant_token": "YOUR_HOME_ASSISTANT_LONG_LIVED_TOKEN",
+
+  "_comment_daw": "actions/audio_daw.py — install a virtual MIDI port (e.g. loopMIDI on Windows) so Jarvis and your DAW share one, and point the DAW's OSC listener at osc_host/osc_port.",
+  "osc_host": "127.0.0.1",
+  "osc_port": 9000,
+
+  "_comment_render": "actions/render_jobs.py — only needed if Blender isn't already on PATH.",
+  "blender_path": "C:\\Program Files\\Blender Foundation\\Blender 4.2\\blender.exe",
+
+  "_comment_vm": "actions/vm_control.py — VirtualBox and Hyper-V are auto-detected via PATH/PowerShell; vmrun_path is only needed if VMware's vmrun isn't on PATH.",
+  "vmrun_path": "C:\\Program Files (x86)\\VMware\\VMware Workstation\\vmrun.exe"
+}
