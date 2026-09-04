@@ -10,10 +10,13 @@ summary of what it saw. Stored in SQLite, split into:
     - Langzeitgedaechtnis : entries flagged is_important=True, kept past cleanup
 """
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from sqlite3 import connect
 from threading import Lock
+
+_CLEANUP_INTERVAL_SECONDS = 6 * 60 * 60  # run cleanup_old_short_term at most every 6h
 
 
 def _base_dir() -> Path:
@@ -32,6 +35,7 @@ class ScreenMemory:
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = connect(db_path, check_same_thread=False)
         self._create_tables()
+        self._last_cleanup = 0.0
 
     def _create_tables(self) -> None:
         with self._lock:
@@ -62,6 +66,16 @@ class ScreenMemory:
             ''', (datetime.now(), app_or_website, summary, tags, 1 if is_important else 0))
             self._conn.commit()
         print(f"[ScreenMemory] Gemerkt: {app_or_website} -> {summary[:50]}...")
+        self._maybe_cleanup()
+
+    def _maybe_cleanup(self) -> None:
+        """Throttled auto-cleanup — runs at most once per _CLEANUP_INTERVAL_SECONDS,
+        triggered opportunistically off add_memory() so no background scheduler is needed."""
+        now = time.monotonic()
+        if now - self._last_cleanup < _CLEANUP_INTERVAL_SECONDS:
+            return
+        self._last_cleanup = now
+        self.cleanup_old_short_term()
 
     def get_short_term_memory(self, minutes: int = 30) -> list[tuple]:
         """Holt die Erinnerungen der letzten X Minuten."""

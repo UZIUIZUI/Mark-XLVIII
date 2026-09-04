@@ -4,7 +4,9 @@ import asyncio
 import base64
 import io
 import json
+import platform
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -71,6 +73,54 @@ def _get_api_key() -> str:
 
 def _get_os() -> str:
     return _load_config().get("os_system", "windows").lower()
+
+
+def active_window_title() -> str:
+    """
+    Best-effort title of the currently focused window, for tagging screen
+    memory entries (e.g. "Shopify Admin — Google Chrome" instead of just
+    "Bildschirm"). Falls back to "Bildschirm" if it can't be determined.
+    """
+    system = platform.system()
+    try:
+        if system == "Windows":
+            import ctypes
+            hwnd = ctypes.windll.user32.GetForegroundWindow()
+            length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
+            buf = ctypes.create_unicode_buffer(length + 1)
+            ctypes.windll.user32.GetWindowTextW(hwnd, buf, length + 1)
+            title = buf.value.strip()
+            return title or "Bildschirm"
+
+        if system == "Darwin":
+            script = (
+                'tell application "System Events" to get name of first '
+                'application process whose frontmost is true'
+            )
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True, text=True, timeout=3,
+            )
+            title = result.stdout.strip()
+            return title or "Bildschirm"
+
+        if system == "Linux":
+            try:
+                result = subprocess.run(
+                    ["xdotool", "getactivewindow", "getwindowname"],
+                    capture_output=True, text=True, timeout=3,
+                )
+                title = result.stdout.strip()
+                if title:
+                    return title
+            except FileNotFoundError:
+                pass
+            return "Bildschirm"
+
+    except Exception as e:
+        print(f"[Vision] ⚠️  active_window_title failed: {e}")
+
+    return "Bildschirm"
 
 _LIVE_MODEL         = "models/gemini-2.5-flash-native-audio-preview-12-2025"
 _CHANNELS           = 1
@@ -349,8 +399,9 @@ class _VisionSession:
                             print(f"[Vision] 💬 {full}")
                             try:
                                 from memory.screen_memory import get_screen_memory
+                                tag = "Kamera" if self._last_angle == "camera" else active_window_title()
                                 get_screen_memory().add_memory(
-                                    app_or_website="Kamera" if self._last_angle == "camera" else "Bildschirm",
+                                    app_or_website=tag,
                                     summary=full,
                                 )
                             except Exception as e:
