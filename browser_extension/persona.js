@@ -72,6 +72,19 @@ class JarvisPersona {
     }
   }
 
+  // Freigabe-Dialog für riskante Aktionen (siehe SafetyGuard)
+  async askPermission(actionDescription) {
+    await this.speak(`Sir, eine potenziell kritische Aktion erfordert Ihre Genehmigung: ${actionDescription}. Soll ich fortfahren?`);
+  }
+
+  async actionDenied() {
+    await this.speak(`Verstanden, Sir. Vorgang abgebrochen. Eine weise Entscheidung.`);
+  }
+
+  async actionApproved() {
+    await this.speak(`Bestätigt, Sir. Ausführung läuft.`);
+  }
+
   getRandom(array) {
     return array[Math.floor(Math.random() * array.length)];
   }

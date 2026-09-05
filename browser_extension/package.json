@@ -10,5 +10,8 @@
     "puppeteer": "^23.0.0",
     "say": "^0.16.0",
     "ws": "^8.21.3"
+  },
+  "optionalDependencies": {
+    "robotjs": "^0.6.0"
   }
 }

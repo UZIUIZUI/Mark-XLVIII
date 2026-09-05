@@ -16,17 +16,42 @@
  */
 const puppeteer = require('puppeteer');
 const { WebSocketServer } = require('ws');
+const { exec } = require('child_process');
 const JarvisPersona = require('./persona');
+const SafetyGuard = require('./safety_guard');
 
 const PORT  = process.env.JARVIS_BRIDGE_PORT || 8080;
 const TOKEN = process.env.JARVIS_BRIDGE_TOKEN || '';
 const VOICE_ENABLED = process.env.JARVIS_BRIDGE_VOICE !== 'off';
+const SHELL_EXEC_TIMEOUT_MS = 30000;
 
 const persona = new JarvisPersona(process.env.JARVIS_USER_NAME || 'Sir', {
   voice: process.env.JARVIS_BRIDGE_TTS_VOICE || 'Hedda',
   speed: parseFloat(process.env.JARVIS_BRIDGE_TTS_SPEED || '1.0'),
   enabled: VOICE_ENABLED,
 });
+const guard = new SafetyGuard(persona);
+
+// robotjs requires a native build step and frequently fails to install on
+// current Node versions — load it lazily so a missing/broken build only
+// disables MOUSE_CLICK/KEYBOARD_TYPE instead of crashing the whole bridge.
+// Mouse/keyboard automation on the Python side is already fully covered by
+// actions/computer_control.py; this exists only for Node-side callers.
+let robot = null;
+try {
+  robot = require('robotjs');
+} catch (err) {
+  console.warn('[Jarvis Bridge] robotjs not available — MOUSE_CLICK/KEYBOARD_TYPE disabled:', err.message);
+}
+
+function executeShellCommand(cmd) {
+  return new Promise((resolve, reject) => {
+    exec(cmd, { timeout: SHELL_EXEC_TIMEOUT_MS }, (error, stdout, stderr) => {
+      if (error) reject(new Error(stderr || error.message));
+      else resolve(stdout);
+    });
+  });
+}
 
 if (!TOKEN) {
   console.error(
@@ -72,14 +97,50 @@ async function acceptCookieBanner(p) {
   }
 }
 
-async function handlePuppeteerCommand(command) {
+async function handleCommand(action, payload) {
+  // MOUSE_CLICK / KEYBOARD_TYPE — OS-level input, not the browser.
+  if (action === 'MOUSE_CLICK') {
+    if (!robot) return { ok: false, error: 'robotjs is not installed on this bridge.' };
+    const x = Number(payload.x), y = Number(payload.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return { ok: false, error: 'Missing/invalid x, y.' };
+    robot.moveMouse(x, y);
+    robot.mouseClick();
+    await persona.complete('Der Mausklick');
+    return { ok: true };
+  }
+
+  if (action === 'KEYBOARD_TYPE') {
+    if (!robot) return { ok: false, error: 'robotjs is not installed on this bridge.' };
+    robot.typeString(String(payload.text ?? ''));
+    await persona.complete('Die Tastatureingabe');
+    return { ok: true };
+  }
+
+  if (action === 'SHELL_EXEC') {
+    const cmd = String(payload.command || '').trim();
+    if (!cmd) return { ok: false, error: 'Missing command.' };
+    try {
+      const output = await executeShellCommand(cmd);
+      console.log('[Jarvis Bridge] Shell output:', output);
+      await persona.complete('Der Systembefehl');
+      return { ok: true, output };
+    } catch (err) {
+      await persona.speak('Sir, der Systembefehl wurde mit einem Fehler abgebrochen.');
+      return { ok: false, error: String(err.message || err) };
+    }
+  }
+
+  return handlePuppeteerCommand(action, payload);
+}
+
+async function handlePuppeteerCommand(action, payload) {
   const p = await getPage();
 
-  switch (command.action) {
-    case 'SEARCH_AND_CLICK': {
-      const query = String(command.query || '').trim();
+  switch (action) {
+    case 'SEARCH_AND_CLICK':
+    case 'BROWSER_SEARCH_AND_CLICK': {
+      const query = String(payload.query || '').trim();
       if (!query) return { ok: false, error: 'Missing query.' };
-      await persona.acknowledge();
       await p.goto(`https://www.google.com/search?q=${encodeURIComponent(query)}`, {
         waitUntil: 'domcontentloaded',
         timeout: 15000,
@@ -97,8 +158,8 @@ async function handlePuppeteerCommand(command) {
     }
 
     case 'TYPE_TEXT': {
-      const selector = String(command.selector || '');
-      const text = String(command.text ?? '');
+      const selector = String(payload.selector || '');
+      const text = String(payload.text ?? '');
       if (!selector) return { ok: false, error: 'Missing selector.' };
       await p.waitForSelector(selector, { timeout: 10000 });
       await p.type(selector, text, { delay: 15 });
@@ -106,17 +167,19 @@ async function handlePuppeteerCommand(command) {
       return { ok: true };
     }
 
-    case 'GOTO': {
-      const url = String(command.url || '');
+    case 'GOTO':
+    case 'BROWSER_NAVIGATE': {
+      const url = String(payload.url || '');
       if (!/^https?:\/\//i.test(url)) {
         return { ok: false, error: 'Only http(s) URLs are allowed.' };
       }
       await p.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      await persona.complete('Die Navigation');
       return { ok: true };
     }
 
     default:
-      return { ok: false, error: `Unknown Puppeteer action: ${command.action}` };
+      return { ok: false, error: `Unknown action: ${action}` };
   }
 }
 
@@ -161,11 +224,15 @@ wss.on('connection', (ws, req) => {
     const requestId = command.requestId;
 
     try {
-      if (typeof command.action !== 'string') {
-        throw new Error('Missing "action".');
+      // Accept either the bridge's native {action, ...flatParams} shape or
+      // the {type, payload} shape from the jarvis_core.js sketch.
+      const action  = command.action || command.type;
+      const payload = command.payload || command;
+      if (typeof action !== 'string' || !action) {
+        throw new Error('Missing "action"/"type".');
       }
 
-      if (command.action.startsWith('DIRECT_')) {
+      if (action.startsWith('DIRECT_')) {
         // Relay to the extension so it acts on the user's real active tab.
         if (extensionSockets.size === 0) {
           throw new Error('No browser extension connected.');
@@ -177,7 +244,19 @@ wss.on('connection', (ws, req) => {
         return;
       }
 
-      const result = await handlePuppeteerCommand(command);
+      if (guard.isRisky(action, payload)) {
+        const approved = await guard.requestApproval(command.description || action);
+        if (!approved) {
+          await persona.actionDenied();
+          ws.send(JSON.stringify({ ok: false, requestId, error: 'Denied by user.' }));
+          return;
+        }
+        await persona.actionApproved();
+      } else {
+        await persona.acknowledge();
+      }
+
+      const result = await handleCommand(action, payload);
       ws.send(JSON.stringify({ ...result, requestId }));
     } catch (err) {
       console.error('[Jarvis Bridge] Command failed:', err);

@@ -9,10 +9,17 @@ two ways:
   act on your *actual* active Chrome tab via `chrome.scripting`, relayed
   through the same server.
 
+A third path, `SHELL_EXEC`, runs arbitrary OS shell commands — gated by the
+`SafetyGuard` (below) so nothing executes without an explicit "j" typed
+into the server's own terminal, in addition to the token requirement.
+
 Every connection to the bridge (extension included) requires a shared
 secret token — there is no unauthenticated control channel. Without a
 token, any web page open in any browser on the machine could open a plain
-`new WebSocket('ws://localhost:8080')` and drive your browser.
+`new WebSocket('ws://localhost:8080')` and drive your browser — and, given
+`SHELL_EXEC`'s power, that would mean arbitrary command execution, not just
+browser automation. The terminal-approval gate on risky commands does not
+replace the token — both apply.
 
 ## Setup
 
@@ -51,13 +58,47 @@ token, any web page open in any browser on the machine could open a plain
 
 ## Commands
 
-| action              | params              | runs where                    |
-|---------------------|---------------------|--------------------------------|
-| `SEARCH_AND_CLICK`  | `query`             | Puppeteer window (Google search, clicks first organic result) |
-| `TYPE_TEXT`         | `selector`, `text`  | Puppeteer window |
-| `GOTO`              | `url` (http/https)  | Puppeteer window |
-| `DIRECT_TYPE_TEXT`  | `selector`, `text`  | your active Chrome tab, via the extension |
-| `DIRECT_CLICK`      | `selector`          | your active Chrome tab, via the extension |
+Send either shape — `{"action": "...", ...params}` or `{"type": "...", "payload": {...}}` —
+both are accepted; `description` is optional and shown in the approval prompt for risky commands.
+
+| action / type          | params              | runs where                    | needs approval? |
+|------------------------|---------------------|--------------------------------|:---:|
+| `SEARCH_AND_CLICK` / `BROWSER_SEARCH_AND_CLICK` | `query` | Puppeteer window (Google search, clicks first organic result, auto-accepts cookie banners) | no |
+| `TYPE_TEXT`            | `selector`, `text`  | Puppeteer window | no |
+| `GOTO` / `BROWSER_NAVIGATE` | `url` (http/https) | Puppeteer window | no |
+| `MOUSE_CLICK`          | `x`, `y`            | OS-level, via `robotjs` (optional dependency) | no |
+| `KEYBOARD_TYPE`        | `text`              | OS-level, via `robotjs` (optional dependency) | no |
+| `SHELL_EXEC`           | `command`           | a real shell (`child_process.exec`, 30s timeout) | **yes, always** |
+| `DIRECT_TYPE_TEXT`     | `selector`, `text`  | your active Chrome tab, via the extension | no |
+| `DIRECT_CLICK`         | `selector`          | your active Chrome tab, via the extension | no |
+
+`MOUSE_CLICK`/`KEYBOARD_TYPE` are here for Node-side callers; the Python
+Jarvis app already has full mouse/keyboard control via
+`actions/computer_control.py` and doesn't need this bridge for that.
+
+## Safety Guard — approval for risky commands
+
+`safety_guard.js` (`SafetyGuard`) decides which commands run immediately
+and which require an explicit "j"/"ja" typed into the server's own
+terminal before anything happens — voice/WebSocket alone can never
+authorize these:
+
+- `SHELL_EXEC`, `FILE_DELETE`, `FILE_WRITE`, `BROWSER_PURCHASE`,
+  `BROWSER_SUBMIT_FORM` are **always** treated as risky, whatever their payload.
+- Any other command whose JSON payload matches a destructive pattern
+  (`rm -rf`, `format`, `shutdown`, `sudo`, `drop table`, `.exe`/`.bat`, ...)
+  is risky too.
+- On a risky command: the persona asks for permission out loud, then the
+  server prompts `[JARVIS PROMPT] "<description>" freigeben? (j/n):` on
+  its own stdin. Only "j"/"ja"/"y"/"yes" proceeds; anything else — or a
+  closed connection — cancels the action and nothing runs. Concurrent
+  risky commands are queued one at a time so two prompts never collide on
+  the same terminal.
+
+Example — this will NOT run until you type `j` in the server's terminal:
+```json
+{"type": "SHELL_EXEC", "payload": {"command": "dir"}, "description": "Dateisystem auflisten"}
+```
 
 ## Voice feedback
 
