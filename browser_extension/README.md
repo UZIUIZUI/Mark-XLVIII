@@ -61,14 +61,20 @@ token, any web page open in any browser on the machine could open a plain
 
 ## Voice feedback
 
-The server speaks short status lines ("At your service, Sir.", "On it,
-Sir.", "Task completed, Sir.") via the local `say` npm package (which uses
-your OS's built-in TTS — SAPI on Windows, `say`/AVSpeechSynthesizer on
-macOS, `festival`/`espeak` on Linux). This is independent of Jarvis's own
-voice pipeline (`core/tts.py`) — it's the bridge's own, separate voice.
-Disable it with:
+`persona.js` (`JarvisPersona`) gives the bridge its own dry, film-accurate
+German voice lines for greeting, acknowledging, completing, and failing a
+command — randomly picked per category so it doesn't repeat verbatim every
+time. It speaks via the local `say` npm package (OS built-in TTS — SAPI on
+Windows, `say`/AVSpeechSynthesizer on macOS, `festival`/`espeak` on Linux).
+This is independent of Jarvis's own voice pipeline (`core/tts.py`) — it's
+the bridge's own, separate voice.
+
+Configure it with environment variables:
 ```bash
-JARVIS_BRIDGE_VOICE=off node server.js
+JARVIS_USER_NAME="Sir"        # how the persona addresses you
+JARVIS_BRIDGE_TTS_VOICE=Hedda # OS voice name (Windows SAPI voice, e.g. "Hedda" for German)
+JARVIS_BRIDGE_TTS_SPEED=1.0
+JARVIS_BRIDGE_VOICE=off       # disable voice entirely
 ```
 
 ## Notes

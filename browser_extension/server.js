@@ -16,26 +16,17 @@
  */
 const puppeteer = require('puppeteer');
 const { WebSocketServer } = require('ws');
-const say = require('say');
+const JarvisPersona = require('./persona');
 
 const PORT  = process.env.JARVIS_BRIDGE_PORT || 8080;
 const TOKEN = process.env.JARVIS_BRIDGE_TOKEN || '';
 const VOICE_ENABLED = process.env.JARVIS_BRIDGE_VOICE !== 'off';
 
-function speak(text) {
-  if (!VOICE_ENABLED) return Promise.resolve();
-  return new Promise((resolve) => {
-    try {
-      say.speak(text, null, 1.0, (err) => {
-        if (err) console.error('[Jarvis Bridge] TTS error:', err);
-        resolve();
-      });
-    } catch (err) {
-      console.error('[Jarvis Bridge] TTS unavailable:', err.message || err);
-      resolve();
-    }
-  });
-}
+const persona = new JarvisPersona(process.env.JARVIS_USER_NAME || 'Sir', {
+  voice: process.env.JARVIS_BRIDGE_TTS_VOICE || 'Hedda',
+  speed: parseFloat(process.env.JARVIS_BRIDGE_TTS_SPEED || '1.0'),
+  enabled: VOICE_ENABLED,
+});
 
 if (!TOKEN) {
   console.error(
@@ -88,15 +79,20 @@ async function handlePuppeteerCommand(command) {
     case 'SEARCH_AND_CLICK': {
       const query = String(command.query || '').trim();
       if (!query) return { ok: false, error: 'Missing query.' };
-      await speak('On it, Sir.');
+      await persona.acknowledge();
       await p.goto(`https://www.google.com/search?q=${encodeURIComponent(query)}`, {
         waitUntil: 'domcontentloaded',
         timeout: 15000,
       });
       await acceptCookieBanner(p);
-      await p.waitForSelector('#search h3', { timeout: 10000 });
+      try {
+        await p.waitForSelector('#search h3', { timeout: 10000 });
+      } catch {
+        await persona.warnOrSarcasm('no_results');
+        return { ok: false, error: 'No search results found.' };
+      }
       await p.click('#search h3');
-      await speak('Task completed, Sir. Target page loaded.');
+      await persona.complete('Die Websuche');
       return { ok: true };
     }
 
@@ -106,7 +102,7 @@ async function handlePuppeteerCommand(command) {
       if (!selector) return { ok: false, error: 'Missing selector.' };
       await p.waitForSelector(selector, { timeout: 10000 });
       await p.type(selector, text, { delay: 15 });
-      await speak('Information input complete, Sir.');
+      await persona.complete('Die Texteingabe');
       return { ok: true };
     }
 
@@ -148,7 +144,7 @@ wss.on('connection', (ws, req) => {
     // automatically with backoff, and re-greeting on every reconnect would
     // be the exact repeated-notification annoyance Jarvis's voice pipeline
     // already had to be fixed for.
-    speak('At your service, Sir. Systems fully operational.');
+    persona.greet();
   }
 
   ws.on('close', () => extensionSockets.delete(ws));
@@ -185,6 +181,7 @@ wss.on('connection', (ws, req) => {
       ws.send(JSON.stringify({ ...result, requestId }));
     } catch (err) {
       console.error('[Jarvis Bridge] Command failed:', err);
+      await persona.warnOrSarcasm('error');
       ws.send(JSON.stringify({ ok: false, requestId, error: String(err.message || err) }));
     }
   });
