@@ -99,6 +99,25 @@ def _clean_transcript(text: str) -> str:
     text = re.sub(r"[\x00-\x08\x0b-\x1f]", "", text)
     return text.strip()
 
+
+_DISABLED_VALUES = {"disabled", "off", "false", "no", "aus", "deaktiviert", "nein"}
+
+
+def _preference_disabled(memory: dict, key: str) -> bool:
+    """
+    Checks memory['preferences'][key] for an explicit opt-out. This backs
+    recurring, unsolicited behaviors (startup news, proactive check-ins,
+    system alerts) with a real persisted flag instead of relying purely on
+    the live model remembering a spoken "stop doing that" from a past turn.
+    save_memory(category='preferences', key=<this key>, value='disabled')
+    is how the model (or the user, via UI/dashboard) sets it.
+    """
+    entry = (memory or {}).get("preferences", {}).get(key)
+    if not entry:
+        return False
+    value = entry.get("value", "") if isinstance(entry, dict) else str(entry)
+    return value.strip().lower() in _DISABLED_VALUES
+
 # --- Plugin system ---
 
 
@@ -637,6 +656,7 @@ class JarvisLive:
 
         lang = _val("language")
         name = _val("name")
+        news_enabled = not _preference_disabled(memory, "news_briefing")
 
         from datetime import datetime
         time_str = datetime.now().strftime("%H:%M")
@@ -644,16 +664,26 @@ class JarvisLive:
         # ── Phase 1: instant greeting — one simple sentence ──────────────────
         lang_clause = f" Respond in {lang}." if lang else ""
         name_clause = f" Address the user as {name}." if name else ""
-        p1 = (
-            f"Greet the user, mention it is {time_str}, and say you are fetching today's news headlines now. "
-            f"One short sentence only. Do not call any tools.{lang_clause}{name_clause}"
-        )
+        if news_enabled:
+            p1 = (
+                f"Greet the user, mention it is {time_str}, and say you are fetching today's news headlines now. "
+                f"One short sentence only. Do not call any tools.{lang_clause}{name_clause}"
+            )
+        else:
+            p1 = (
+                f"Greet the user and mention it is {time_str}. "
+                f"One short sentence only. Do not call any tools.{lang_clause}{name_clause}"
+            )
 
         await self.session.send_client_content(
             turns={"parts": [{"text": p1}]},
             turn_complete=True,
         )
         self.ui.write_log("SYS: Briefing phase 1 (greeting) sent.")
+
+        if not news_enabled:
+            self.ui.write_log("SYS: Briefing phase 2 (news) skipped — user preference 'news_briefing' is disabled.")
+            return
 
         # ── Phase 2: fetch news in background, deliver after greeting plays ───
         async def _guarded_news():
@@ -697,6 +727,8 @@ class JarvisLive:
         """Background task: voice alerts when metrics exceed thresholds."""
         while True:
             await asyncio.sleep(10)
+            if _preference_disabled(await asyncio.to_thread(load_memory), "system_alerts"):
+                continue
             alert = await asyncio.to_thread(self._sys_monitor.check)
             if alert and self.session:
                 try:
@@ -724,6 +756,9 @@ class JarvisLive:
             with self._speaking_lock:
                 speaking = self._is_speaking
             if speaking:
+                continue
+
+            if _preference_disabled(await asyncio.to_thread(load_memory), "proactive_mode"):
                 continue
 
             if not self._proactive.should_trigger(self._last_user_speech):
