@@ -3,5 +3,6 @@ node_modules/
 .wwebjs_cache/
 downloads/*
 !downloads/.gitkeep
+jarvis_memory.sqlite
+bridge_token.txt
 owner_number.txt
-http_token.txt

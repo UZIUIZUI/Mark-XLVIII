@@ -1,0 +1,22 @@
+{
+  "name": "jarvis-bridge",
+  "version": "1.0.0",
+  "description": "Unified Node bridge for Jarvis: Chrome extension + Puppeteer browser control, WhatsApp, and shared SQLite memory — one process, one persona, one token.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "puppeteer": "^23.0.0",
+    "ws": "^8.18.0",
+    "express": "^4.19.2",
+    "say": "^0.16.0",
+    "whatsapp-web.js": "^1.26.0",
+    "qrcode-terminal": "^0.12.0",
+    "sqlite3": "^5.1.7",
+    "sqlite": "^5.1.1"
+  },
+  "optionalDependencies": {
+    "robotjs": "^0.6.0"
+  }
+}

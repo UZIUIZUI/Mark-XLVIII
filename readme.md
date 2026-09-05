@@ -95,14 +95,15 @@ python main.py
 
 > ⚠️ **Installation Note:** Some OS-specific dependencies are not bundled in `requirements.txt` to keep the repo lightweight. If you hit a `ModuleNotFoundError`, install the missing package with `pip install <module_name>`.
 
-### Optional Node.js peripherals
+### Optional Node.js bridge
 
-Three separate, optional add-ons extend Jarvis but are not required to run
-it: `browser_extension/` (Chrome extension + Puppeteer control),
-`whatsapp_bridge/` (WhatsApp send/receive), and `memory_bridge/` (shared
-memory for the two above). Each has its own `Start_*.bat` launcher inside
-its folder that installs dependencies and generates its security token
-automatically on first run.
+`jarvis_bridge/` is a single, optional add-on — not required to run
+Jarvis itself. One process combining Chrome extension + Puppeteer browser
+control, WhatsApp send/receive, and shared SQLite memory, with one shared
+persona and one security token. Double-click
+`jarvis_bridge/Start_JarvisBridge.bat` — it installs dependencies,
+generates the token, and asks once for your WhatsApp number (leave blank
+to skip WhatsApp). See `jarvis_bridge/README.md` for details.
 
 ---
 
