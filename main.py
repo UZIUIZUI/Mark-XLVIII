@@ -30,7 +30,7 @@ from google import genai
 from google.genai import types
 from ui import JarvisUI
 from memory.memory_manager import (
-    load_memory, update_memory, format_memory_for_prompt,
+    load_memory, update_memory, format_memory_for_prompt, should_send_morning_briefing,
 )
 
 from actions.file_processor import file_processor
@@ -63,11 +63,37 @@ def get_base_dir():
 BASE_DIR        = get_base_dir()
 API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
 PROMPT_PATH     = BASE_DIR / "core" / "prompt.txt"
+SESSION_HANDLE_PATH = BASE_DIR / "memory" / "session_handle.json"
 LIVE_MODEL          = "models/gemini-2.5-flash-native-audio-preview-12-2025"
 CHANNELS            = 1
 SEND_SAMPLE_RATE    = 16000
 RECEIVE_SAMPLE_RATE = 24000
 CHUNK_SIZE          = 1024
+
+
+def _load_session_handle() -> str | None:
+    """Loads the last Gemini Live session-resumption handle so a reconnect
+    can continue the previous short-term conversation context instead of
+    starting from zero."""
+    if not SESSION_HANDLE_PATH.exists():
+        return None
+    try:
+        data = json.loads(SESSION_HANDLE_PATH.read_text(encoding="utf-8"))
+        return data.get("handle") or None
+    except Exception:
+        return None
+
+
+def _save_session_handle(handle: str | None) -> None:
+    if not handle:
+        return
+    try:
+        SESSION_HANDLE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        SESSION_HANDLE_PATH.write_text(
+            json.dumps({"handle": handle}), encoding="utf-8"
+        )
+    except Exception as e:
+        print(f"[Session] ⚠️ Could not save resumption handle: {e}")
 
 def _get_api_key() -> str:
     with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
@@ -542,6 +568,7 @@ class JarvisLive:
         self._sys_monitor      = SystemMonitor()  # persistent cooldown state
         self._proactive        = ProactiveEngine()
         self._last_user_speech = time.monotonic()  # updated on every user utterance
+        self._session_handle   = _load_session_handle()  # Gemini Live resumption handle (short-term continuity across reconnects)
 
     def _make_remote_key(self):
         """Called from Qt main thread when user presses Remote Control."""
@@ -636,7 +663,7 @@ class JarvisLive:
             input_audio_transcription={},
             system_instruction="\n".join(parts),
             tools=[{"function_declarations": TOOL_DECLARATIONS}],
-            session_resumption=types.SessionResumptionConfig(),
+            session_resumption=types.SessionResumptionConfig(handle=self._session_handle),
             speech_config=types.SpeechConfig(
                 voice_config=types.VoiceConfig(
                     prebuilt_voice_config=types.PrebuiltVoiceConfig(
@@ -852,6 +879,12 @@ class JarvisLive:
         try:
             while True:
                 async for response in self.session.receive():
+
+                    if response.session_resumption_update and response.session_resumption_update.resumable:
+                        new_handle = response.session_resumption_update.new_handle
+                        if new_handle and new_handle != self._session_handle:
+                            self._session_handle = new_handle
+                            _save_session_handle(new_handle)
 
                     if response.data:
                         if self._interrupted:
@@ -1242,10 +1275,14 @@ class JarvisLive:
                     if self._dashboard:
                         tg.create_task(self._relay_phone_audio())
 
-                    # Morning briefing — fires once per process launch
+                    # Morning briefing — fires once per process launch, unless the
+                    # user has opted out via a stored preference (long-term memory)
                     if not self._briefing_sent:
                         self._briefing_sent = True
-                        tg.create_task(self._send_startup_briefing())
+                        if should_send_morning_briefing():
+                            tg.create_task(self._send_startup_briefing())
+                        else:
+                            print("[JARVIS] 🔕 Morning briefing skipped (user preference).")
 
             except KeyboardInterrupt:
                 raise

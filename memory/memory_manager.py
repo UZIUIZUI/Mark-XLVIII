@@ -193,6 +193,37 @@ def format_memory_for_prompt(memory: dict | None) -> str:
 
     return result + "\n"
 
+MORNING_BRIEFING_OPT_OUT_TERMS = [
+    "keine nachrichten am morgen",
+    "keine morgennachrichten",
+    "kein briefing",
+    "keine nachrichten",
+    "no messages in the morning",
+    "no morning messages",
+    "no morning briefing",
+    "don't want to hear messages in the morning",
+]
+
+
+def should_send_morning_briefing(memory: dict | None = None) -> bool:
+    """Prüft anhand des Langzeitgedächtnisses, ob der Nutzer Morgen-Briefings deaktiviert hat."""
+    memory = memory if memory is not None else load_memory()
+    prefs  = memory.get("preferences", {})
+    if not isinstance(prefs, dict):
+        return True
+
+    blob = " ".join(
+        str(entry.get("value", "") if isinstance(entry, dict) else entry)
+        for entry in prefs.values()
+    ).lower()
+
+    for term in MORNING_BRIEFING_OPT_OUT_TERMS:
+        if term in blob:
+            print(f"[Memory] 🔕 Morning briefing skipped — matched preference: '{term}'")
+            return False
+    return True
+
+
 def remember(key: str, value: str, category: str = "notes") -> str:
     valid = {"identity", "preferences", "projects", "relationships", "wishes", "notes"}
     if category not in valid:
