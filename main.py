@@ -1025,11 +1025,11 @@ class JarvisLive:
         from datetime import datetime
         time_str = datetime.now().strftime("%H:%M")
 
-        # ── Phase 1: instant greeting — one simple sentence ──────────────────
+        # ── Greeting — one simple sentence. News briefing disabled by request. ──
         lang_clause = f" Respond in {lang}." if lang else ""
         name_clause = f" Address the user as {name}." if name else ""
         p1 = (
-            f"Greet the user, mention it is {time_str}, and say you are fetching today's news headlines now. "
+            f"Greet the user and mention it is {time_str}. "
             f"One short sentence only. Do not call any tools.{lang_clause}{name_clause}"
         )
 
@@ -1038,42 +1038,6 @@ class JarvisLive:
             turn_complete=True,
         )
         self.ui.write_log("SYS: Briefing phase 1 (greeting) sent.")
-
-        # ── Phase 2: fetch news in background, deliver after greeting plays ───
-        async def _guarded_news():
-            try:
-                await self._briefing_news_phase(lang)
-            except Exception as e:
-                print(f"[Briefing] Phase 2 error: {e}")
-                self.ui.write_log(f"SYS: Briefing news phase failed: {e}")
-        asyncio.create_task(_guarded_news())
-
-    async def _briefing_news_phase(self, lang: str) -> None:
-        """
-        Sends phase-2 (news) to Gemini ~1.5 s after phase-1 is dispatched so
-        Gemini starts working on it while phase-1 audio is still playing.
-        """
-        lang_str = f" Respond in {lang}." if lang else ""
-
-        # 1.5 s is enough for Gemini to finish generating phase-1 audio on its
-        # side (turn_complete) while the greeting is still being played locally.
-        await asyncio.sleep(1.5)
-
-        if not self.session:
-            return
-
-        p2 = (
-            "[BRIEFING] Call web_search with mode='news' and query='top world news today' "
-            "to find actual recent news articles with real event headlines (not just website names). "
-            "After the search, say ONE specific news event from the results in one sentence, "
-            f"then say the full list is displayed on screen.{lang_str}"
-        )
-
-        await self.session.send_client_content(
-            turns={"parts": [{"text": p2}]},
-            turn_complete=True,
-        )
-        self.ui.write_log("SYS: Briefing phase 2 (news) sent.")
 
     # ── System monitor ──────────────────────────────────────────────────────────
 
