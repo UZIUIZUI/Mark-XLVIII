@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Jarvis Browser Bridge",
+  "version": "1.1",
+  "description": "Connects Jarvis to your active Chrome tab for direct type/click automation, alongside the Puppeteer-driven window run by server.js.",
+  "permissions": ["activeTab", "scripting", "storage", "tabs"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Jarvis Browser Bridge",
+    "default_popup": "popup.html"
+  }
+}

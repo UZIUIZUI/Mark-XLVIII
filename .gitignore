@@ -6,3 +6,4 @@ venv/
 *.egg-info/
 .DS_Store
 config/api_keys.json
+browser_extension/node_modules/
