@@ -3,3 +3,5 @@ node_modules/
 .wwebjs_cache/
 downloads/*
 !downloads/.gitkeep
+owner_number.txt
+http_token.txt

@@ -81,6 +81,11 @@ All transient vision and interrupt flags (`_pending_vision`, `_vision_busy`, `_v
 
 ## ⚡ Quick Start
 
+**Windows:** double-click **`Start_Jarvis.bat`** in the project root. It
+sets up a virtual environment, installs dependencies on first run, checks
+for `config/api_keys.json`, and launches Jarvis — no terminal commands needed.
+
+**Manual / macOS / Linux:**
 ```bash
 git clone https://github.com/FatihMakes/Mark-XLVIII.git
 cd Mark-XLVIII
@@ -89,6 +94,15 @@ python main.py
 ```
 
 > ⚠️ **Installation Note:** Some OS-specific dependencies are not bundled in `requirements.txt` to keep the repo lightweight. If you hit a `ModuleNotFoundError`, install the missing package with `pip install <module_name>`.
+
+### Optional Node.js peripherals
+
+Three separate, optional add-ons extend Jarvis but are not required to run
+it: `browser_extension/` (Chrome extension + Puppeteer control),
+`whatsapp_bridge/` (WhatsApp send/receive), and `memory_bridge/` (shared
+memory for the two above). Each has its own `Start_*.bat` launcher inside
+its folder that installs dependencies and generates its security token
+automatically on first run.
 
 ---
 
