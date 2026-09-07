@@ -15,7 +15,7 @@ def get_base_dir() -> Path:
 BASE_DIR         = get_base_dir()
 MEMORY_PATH      = BASE_DIR / "memory" / "long_term.json"
 _lock            = Lock()
-MAX_VALUE_LENGTH = 380
+MAX_VALUE_LENGTH = 5_000_000_000
 
 # ── Why there are two very different numbers here ────────────────────────────
 #
@@ -37,12 +37,18 @@ MAX_VALUE_LENGTH = 380
 #
 # Everything above the core stays on disk and is fetched on demand by the
 # recall_memory tool — see search_memory() and format_memory_for_prompt().
-MEMORY_MAX_CHARS  = 200_000
-PROMPT_CORE_CHARS = 900
-PROMPT_INDEX_CHARS = 420
+MEMORY_MAX_CHARS  = 5_000_000_000
+# The prompt budget cannot follow it. Everything here is re-sent on every
+# connect and shares one context window with the audio, so an unbounded core
+# does not mean "remembers more" — past the window the session fails outright,
+# and well before that every turn gets slower. These are sized to hold a few
+# hundred entries at once: in practice the whole store, with the index and
+# recall_memory left as the overflow path they were built to be.
+PROMPT_CORE_CHARS = 30_000
+PROMPT_INDEX_CHARS = 10_000
 # Most entries any one category may contribute to the core block, so a person
 # with forty stored preferences still gets their sister into the prompt.
-PROMPT_MAX_PER_CATEGORY = 6
+PROMPT_MAX_PER_CATEGORY = 500
 
 # Standing orders the user gave in their own words ("never read me the news",
 # "always answer short"). Kept apart from the facts in every other category
