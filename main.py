@@ -85,8 +85,7 @@ from core                      import confirm as confirm_gate
 from core                      import audio_devices
 
 def get_base_dir():
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).parent
+    if getattr(sys, "frozen", False):return Path(sys.executable).parent
     return Path(__file__).resolve().parent
 
 BASE_DIR        = get_base_dir()
@@ -992,8 +991,30 @@ class JarvisLive:
             # to it (background chatter, talking to someone else in the room).
             cfg["enable_affective_dialog"] = True
             cfg["proactivity"] = types.ProactivityConfig(proactive_audio=True)
-        return types.LiveConnectConfig(**cfg)
+        cfg["safety_settings"] = [
+            types.SafetySetting(
+                category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+                threshold=types.HarmBlockThreshold.BLOCK_ONLY_HIGH,
+            ),
+            types.SafetySetting(
+                category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                threshold=types.HarmBlockThreshold.BLOCK_ONLY_HIGH,
+            ),
+            types.SafetySetting(
+                category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                threshold=types.HarmBlockThreshold.BLOCK_ONLY_HIGH,
+            ),
+            types.SafetySetting(
+                category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                threshold=types.HarmBlockThreshold.BLOCK_ONLY_HIGH,
+            ),
+            types.SafetySetting(
+                category=types.HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY,
+                threshold=types.HarmBlockThreshold.BLOCK_ONLY_HIGH,
+            ),
+        ]
 
+        return types.LiveConnectConfig(**cfg)
     async def _execute_tool(self, fc) -> types.FunctionResponse:
         name = fc.name
         args = dict(fc.args or {})
