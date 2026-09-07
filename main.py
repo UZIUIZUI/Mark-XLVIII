@@ -51,6 +51,7 @@ from memory.memory_manager import (
     load_memory, update_memory, format_memory_for_prompt,
     save_session_summary, pop_last_session,
     search_memory, set_trim_notifier,
+    format_rules_for_prompt, save_rule, forget_rule,
 )
 
 from actions.file_processor import file_processor
@@ -651,6 +652,65 @@ TOOL_DECLARATIONS = [
         },
     },
     {
+        "name": "save_rule",
+        "description": (
+            "Store a standing order about how you must behave from now on. "
+            "Call this SILENTLY and IMMEDIATELY whenever the user tells you to "
+            "start, stop, or change something permanently — 'never do X again', "
+            "'always do Y', 'stop doing Z', 'from now on...', 'I told you already', "
+            "or when they are annoyed that you repeated something they corrected. "
+            "If they had to correct you twice, that is a rule you failed to save "
+            "the first time — save it now. "
+            "This is for BEHAVIOUR, not facts: facts about the person go to "
+            "save_memory instead. "
+            "Do not ask permission and do not announce it — just save it, then "
+            "confirm naturally in one short sentence that you will remember. "
+            "Rules are permanent, are never trimmed, and are shown to you at the "
+            "start of every session."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "rule": {
+                    "type": "STRING",
+                    "description": (
+                        "The order as an instruction to yourself, in English, "
+                        "specific and testable. "
+                        "Good: 'Never read out news headlines at startup or at any "
+                        "other time unless explicitly asked.' "
+                        "Bad: 'user does not like news'."
+                    ),
+                },
+                "key": {
+                    "type": "STRING",
+                    "description": (
+                        "Short snake_case id (e.g. no_startup_news, keep_answers_short). "
+                        "Reuse the same key when the user revises an existing rule so it "
+                        "is replaced rather than duplicated."
+                    ),
+                },
+            },
+            "required": ["rule"],
+        },
+    },
+    {
+        "name": "forget_rule",
+        "description": (
+            "Remove a standing order the user has taken back ('you can do X again', "
+            "'forget what I said about X'). Only for rules saved with save_rule."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "key": {
+                    "type": "STRING",
+                    "description": "The rule's key, or any keyword from its text.",
+                },
+            },
+            "required": ["key"],
+        },
+    },
+    {
         "name": "undo",
         "description": (
             "Reverse the last change YOU made to this computer — a file you "
@@ -959,6 +1019,13 @@ class JarvisLive:
             parts.append(mem_str)
         parts.append(sys_prompt)
 
+        # Last, not first: the standing orders exist to override the instructions
+        # above them, and the thing a model is most likely to follow is the thing
+        # it read most recently.
+        rules_str = format_rules_for_prompt(memory)
+        if rules_str:
+            parts.append(rules_str)
+
         cfg = dict(
             response_modalities=["AUDIO"],
             output_audio_transcription={},
@@ -1045,6 +1112,16 @@ class JarvisLive:
                 # hundred short strings, and a thread hop would cost more than
                 # the work itself.
                 result = search_memory(args.get("query", ""), limit=8)
+
+            elif name == "save_rule":
+                result = save_rule(args.get("rule", ""), args.get("key", ""))
+                print(f"[Memory] 📌 {result}")
+                self.ui.write_log(f"SYS: {result}")
+
+            elif name == "forget_rule":
+                result = forget_rule(args.get("key", ""))
+                print(f"[Memory] 📌 {result}")
+                self.ui.write_log(f"SYS: {result}")
 
             elif name == "undo":
                 if str(args.get("action", "")).lower().strip() == "list":

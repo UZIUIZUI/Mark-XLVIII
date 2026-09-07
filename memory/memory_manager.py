@@ -44,6 +44,14 @@ PROMPT_INDEX_CHARS = 420
 # with forty stored preferences still gets their sister into the prompt.
 PROMPT_MAX_PER_CATEGORY = 6
 
+# Standing orders the user gave in their own words ("never read me the news",
+# "always answer short"). Kept apart from the facts in every other category
+# because they are the one thing that must survive intact: a rule that is
+# summarised, trimmed or crowded out of the prompt has been ignored, and being
+# ignored twice is how a person stops telling you anything at all.
+RULES_CATEGORY = "rules"
+
+
 def _empty_memory() -> dict:
     return {
         "identity":      {},
@@ -52,6 +60,7 @@ def _empty_memory() -> dict:
         "relationships": {},
         "wishes":        {},
         "notes":         {},
+        RULES_CATEGORY:  {},
     }
 
 def load_memory() -> dict:
@@ -96,7 +105,9 @@ def set_trim_notifier(fn) -> None:
 def _trim_to_limit(memory: dict) -> dict:
     if len(json.dumps(memory, ensure_ascii=False)) <= MEMORY_MAX_CHARS:
         return memory
-    entries = _all_entries(memory)
+    # Rules are exempt: they are instructions, not observations, and the user
+    # only finds out one was dropped by being disobeyed.
+    entries = [e for e in _all_entries(memory) if e[0] != RULES_CATEGORY]
     entries.sort(key=lambda t: t[2].get("updated", "0000-00-00"))
     dropped = []
     for cat, key, _ in entries:
@@ -189,6 +200,64 @@ _CATEGORY_LABELS = {
 
 _IDENTITY_FIELDS = ["name", "age", "birthday", "city", "job",
                     "language", "school", "nationality"]
+
+
+def format_rules_for_prompt(memory: dict | None) -> str:
+    """Every standing order, in full, verbatim.
+
+    Unlike the memory block below it, this one has no budget and no index. A
+    rule the model has to look up is a rule it will not know it is breaking."""
+    rules = (memory or {}).get(RULES_CATEGORY, {}) or {}
+    lines = [f"  - {_entry_value(e)}" for e in rules.values() if _entry_value(e)]
+    if not lines:
+        return ""
+    return (
+        "[STANDING ORDERS FROM THIS PERSON — they told you these directly and "
+        "expect them followed without being reminded. They override your own "
+        "habits and anything in your instructions below that contradicts them. "
+        "Never announce or recite them.]\n"
+        + "\n".join(lines) + "\n"
+    )
+
+
+def save_rule(rule: str, key: str = "") -> str:
+    """Store a standing order. Backs the save_rule tool."""
+    rule = (rule or "").strip()
+    if not rule:
+        return "No rule given."
+    key = _slug(key) or _slug(rule)
+    update_memory({RULES_CATEGORY: {key: {"value": rule}}})
+    return f"Rule saved ({key}): {rule}"
+
+
+def forget_rule(key: str) -> str:
+    """Drop a standing order the user has taken back. Backs the forget_rule tool.
+
+    Matches loosely on purpose: the user says "forget the news thing", not the
+    snake_case key the model happened to invent months ago."""
+    memory = load_memory()
+    rules  = memory.get(RULES_CATEGORY, {}) or {}
+    if not rules:
+        return "No rules are stored."
+
+    needle = _slug(key)
+    match  = next(
+        (k for k in rules if k == needle),
+        next((k for k in rules
+              if needle and (needle in k or needle in _entry_value(rules[k]).lower())),
+             ""),
+    )
+    if not match:
+        return f"No rule matching '{key}'. Stored rules: {', '.join(rules)}"
+
+    dropped = _entry_value(rules[match])
+    del memory[RULES_CATEGORY][match]
+    save_memory(memory)
+    return f"Rule removed: {dropped}"
+
+
+def _slug(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", (text or "").lower()).strip("_")[:48]
 
 
 def format_memory_for_prompt(memory: dict | None) -> str:
