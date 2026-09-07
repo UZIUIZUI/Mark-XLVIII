@@ -136,10 +136,33 @@ def _load_system_prompt() -> str:
 
 _CTRL_RE = re.compile(r"<ctrl\d+>", re.IGNORECASE)
 
-def _clean_transcript(text: str) -> str:    
+def _clean_transcript(text: str) -> str:
     text = _CTRL_RE.sub("", text)
     text = re.sub(r"[\x00-\x08\x0b-\x1f]", "", text)
     return text.strip()
+
+
+# Shorter than this, a text repeated twice is usually real speech ("Ja, ja",
+# "no, no") rather than the transcript arriving twice.
+_ECHO_MIN_CHARS = 40
+
+
+def _drop_doubled_utterance(text: str) -> str:
+    """Collapse a transcript that arrived as the same sentence twice.
+
+    Native-audio sometimes streams an utterance in pieces and then re-sends it
+    whole, so joining the buffer prints the greeting on screen twice. Only an
+    exact two-half repeat of a long line is collapsed — anything shorter or
+    merely similar is left alone, because a wrong collapse silently eats half
+    of something JARVIS really said."""
+    text = text.strip()
+    if len(text) < _ECHO_MIN_CHARS * 2:
+        return text
+    for sep in (" ", ""):
+        half, rest = divmod(len(text) - len(sep), 2)
+        if rest == 0 and text[:half] == text[half + len(sep):]:
+            return text[:half]
+    return text
 
 TOOL_DECLARATIONS = [
     {
@@ -1406,8 +1429,13 @@ class JarvisLive:
 
                         if sc.output_transcription and sc.output_transcription.text:
                             txt = _clean_transcript(sc.output_transcription.text)
+                            # Skip a chunk that only repeats what the buffer already
+                            # ends with — the last chunk, or the whole utterance
+                            # re-sent after it was streamed in pieces.
                             if txt and txt != (out_buf[-1] if out_buf else ""):
-                                out_buf.append(txt)
+                                if not (len(txt) >= _ECHO_MIN_CHARS
+                                        and " ".join(out_buf).endswith(txt)):
+                                    out_buf.append(txt)
 
                         if sc.input_transcription and sc.input_transcription.text:
                             txt = _clean_transcript(sc.input_transcription.text)
@@ -1439,7 +1467,7 @@ class JarvisLive:
                                     }))
                             in_buf = []
 
-                            full_out = " ".join(out_buf).strip()
+                            full_out = _drop_doubled_utterance(" ".join(out_buf))
                             if full_out:
                                 self.ui.write_log(f"{self._asst_name}: {full_out}")
                                 self._session_log.append(f"{self._asst_name}: {full_out}")
