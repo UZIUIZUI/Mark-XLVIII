@@ -85,14 +85,40 @@ _chosen_api: dict = {"input": None, "output": None}
 # audio actually move), per direction. On this platform that lands on
 # DirectSound for the microphone and MME for the speakers — a split that no
 # amount of reasoning would have produced.
+# Order is not cosmetic: the first host API that answers is the one that carries
+# the audio for the whole session, so a worse API listed earlier permanently
+# wins over a better one behind it.
+#
+# On Windows the two directions genuinely want different APIs, and a single
+# order cannot serve both. Output had "directsound, mme, wasapi": DirectSound
+# fails the transport probe (it swallows writes instantly, see below), MME then
+# answers — and MME is the 1991 path, large buffers, audibly choppy under load.
+# WASAPI, the modern low-latency route, sat behind it and was never reached.
+# Input is the other way round: DirectSound delivers callback audio reliably
+# here and is what the microphone was verified on.
+#
+# Nothing is lost by trying WASAPI first: it runs the same probes as everything
+# else, so if it cannot open at the rate this side needs, the next API is used.
 _PREFERRED_APIS = {
-    "Windows": ("directsound", "mme", "wasapi"),
+    "Windows": {
+        "output": ("wasapi", "directsound", "mme"),
+        "input":  ("directsound", "wasapi", "mme"),
+    },
     # macOS has only Core Audio, so there is nothing to disambiguate.
     "Darwin":  ("core audio",),
     # PulseAudio/PipeWire present one clean endpoint per device; raw ALSA
     # presents dozens of routing permutations of the same card.
     "Linux":   ("pulse", "pipewire", "jack", "alsa"),
 }
+
+
+def _preferred_apis(kind: str) -> tuple:
+    """Host APIs to try for one direction, best first."""
+    import platform
+    entry = _PREFERRED_APIS.get(platform.system(), ())
+    if isinstance(entry, dict):
+        return entry.get(kind, ())
+    return entry
 
 # ── "It opens" is not "it works" ─────────────────────────────────────────────
 #
@@ -289,8 +315,6 @@ def _query() -> dict[str, list[str]]:
         except Exception:
             apis = []
 
-        preferred = _PREFERRED_APIS.get(platform.system(), ())
-
         def _collect(api_filter, kind) -> list[tuple[int, str]]:
             """(index, name) for named, non-pseudo devices on one side that can
             be opened at the rate that side runs at."""
@@ -317,7 +341,7 @@ def _query() -> dict[str, list[str]]:
         # speakers only work on MME — and a single global choice cannot be right
         # for both.
         for kind in ("input", "output"):
-            for api_filter in list(preferred) + [None]:
+            for api_filter in list(_preferred_apis(kind)) + [None]:
                 found = _collect(api_filter, kind)
                 if not found:
                     continue
@@ -410,7 +434,7 @@ def resolve(name: str, kind: str):
         list_devices(kind)
         chosen = _chosen_api.get(kind)
         orders = ([chosen] if chosen is not None else []) \
-            + [a for a in _PREFERRED_APIS.get(platform.system(), ()) if a != chosen] \
+            + [a for a in _preferred_apis(kind) if a != chosen] \
             + [None]
 
         # A candidate only counts if it can be opened at the rate this side runs
