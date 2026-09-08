@@ -1539,6 +1539,10 @@ class JarvisLive:
                 dtype="int16",
                 blocksize=CHUNK_SIZE,
                 device=dev,
+                # Ask the backend for its safe buffer size rather than its
+                # smallest. On Windows the speakers regularly end up on MME,
+                # where the low-latency default underruns audibly.
+                latency="high",
             )
             st.start()
             return st
@@ -1555,6 +1559,15 @@ class JarvisLive:
             self.ui.write_log(f"SYS: Speaker '{_spk_name}' unavailable — using system default.")
             stream = _open_spk(None)
 
+        # Audio arrives over the network in bursts, but the sound card consumes
+        # it at a fixed rate. Writing the first chunk the moment it lands leaves
+        # nothing in hand, so any hesitation upstream is heard immediately as a
+        # gap. Holding this much back at the start of each utterance gives the
+        # stream something to run on while the next chunks are still in flight —
+        # paid once per utterance, not per chunk.
+        PREBUFFER_BYTES = 12000        # ≈ 250 ms at 24 kHz / 16-bit mono
+        speaking = False
+
         try:
             while True:
                 try:
@@ -1569,6 +1582,7 @@ class JarvisLive:
                         and self.audio_in_queue.empty()
                     ):
                         self.set_speaking(False)
+                        speaking = False
                         self._turn_done_event.clear()
                     continue
 
@@ -1583,6 +1597,18 @@ class JarvisLive:
                         batch.extend(self.audio_in_queue.get_nowait())
                     except asyncio.QueueEmpty:
                         break
+
+                # Starting to speak: wait for the cushion instead of taking what
+                # happens to have arrived. The timeout keeps a short reply that
+                # never reaches this size from being held back.
+                if not speaking:
+                    while len(batch) < PREBUFFER_BYTES:
+                        try:
+                            batch.extend(await asyncio.wait_for(
+                                self.audio_in_queue.get(), timeout=0.15))
+                        except asyncio.TimeoutError:
+                            break
+                    speaking = True
 
                 # Drive the HUD waveform from JARVIS's own voice while speaking.
                 try:
