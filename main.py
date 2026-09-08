@@ -1631,8 +1631,11 @@ class JarvisLive:
         # The briefing fires before the user has said anything, so the
         # remembered language is the only signal there is. It is a starting
         # point, not a setting: the moment they reply, their language wins.
-        lang_clause = (f" Speak this greeting in {lang}, then follow the "
-                       f"user's own language from their first reply onward."
+        lang_clause = (f" WRITE THIS GREETING IN {lang.upper()}. The user has not "
+                       f"spoken yet, so {lang} is what you know about them and it "
+                       f"decides this one message — do NOT default to English "
+                       f"because this instruction is in English. From their first "
+                       f"reply onward, follow the language they actually use."
                        if lang else "")
         name_clause = f" Address the user as {name}." if name else ""
 
