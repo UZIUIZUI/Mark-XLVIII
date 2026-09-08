@@ -90,6 +90,29 @@ def volume_mute():
         subprocess.run(["pactl", "set-sink-mute", "@DEFAULT_SINK@", "toggle"],
             capture_output=True)
 
+def _win_endpoint_volume():
+    """The Windows master-volume interface, across both pycaw generations.
+
+    pycaw changed what GetSpeakers() returns: it used to hand back the raw
+    IMMDevice, which callers activated themselves, and now returns an
+    AudioDevice wrapper that exposes the same interface as .EndpointVolume.
+    Code written against the old shape fails with "'AudioDevice' object has no
+    attribute 'Activate'" — which is not obviously a version problem, and sent
+    every volume change down a keypress fallback that cannot set a level at
+    all. Ask for the property first, activate by hand only if it is absent."""
+    from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+
+    speakers = AudioUtilities.GetSpeakers()
+    endpoint = getattr(speakers, "EndpointVolume", None)
+    if endpoint is not None:
+        return endpoint
+
+    from ctypes import cast, POINTER
+    from comtypes import CLSCTX_ALL
+    iface = speakers.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+    return cast(iface, POINTER(IAudioEndpointVolume))
+
+
 def volume_get() -> int | None:
     """Current master volume 0-100, or None if this platform will not say.
 
@@ -98,14 +121,8 @@ def volume_get() -> int | None:
     undoable — a wrong undo is worse than no undo."""
     try:
         if _OS == "Windows":
-            import math
-            from ctypes import cast, POINTER
-            from comtypes import CLSCTX_ALL
-            from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
-            devices   = AudioUtilities.GetSpeakers()
-            interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-            vol       = cast(interface, POINTER(IAudioEndpointVolume))
-            db        = vol.GetMasterVolumeLevel()
+            vol = _win_endpoint_volume()
+            db  = vol.GetMasterVolumeLevel()
             if db <= -65.0:
                 return 0
             return max(0, min(100, round(10 ** (db / 20) * 100)))
@@ -164,19 +181,16 @@ def volume_set(value: int):
     if _OS == "Windows":
         try:
             import math
-            from ctypes import cast, POINTER
-            from comtypes import CLSCTX_ALL
-            from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
-            devices   = AudioUtilities.GetSpeakers()
-            interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-            vol       = cast(interface, POINTER(IAudioEndpointVolume))
-            vol_db    = -65.25 if value == 0 else max(-65.25, 20 * math.log10(value / 100))
+            vol    = _win_endpoint_volume()
+            vol_db = -65.25 if value == 0 else max(-65.25, 20 * math.log10(value / 100))
             vol.SetMasterVolumeLevel(vol_db, None)
             return
         except Exception as e:
-            print(f"[Settings] pycaw failed, using keypress fallback: {e}")
-            pyautogui.press("volumemute")
-            pyautogui.press("volumemute")
+            # No keypress fallback here: the volume keys step by a fixed amount
+            # and cannot reach a specific level, so pressing anything would move
+            # the volume somewhere the caller did not ask for. Say it failed.
+            print(f"[Settings] volume_set failed: {e}")
+            raise
     elif _OS == "Darwin":
         subprocess.run(["osascript", "-e", f"set volume output volume {value}"],
             capture_output=True)
