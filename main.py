@@ -1022,14 +1022,20 @@ class JarvisLive:
         )
 
         # Identity injection — overrides any hardcoded name in prompt.txt
-        _addr = (f"ADDRESS: Always call the user '{_user_name}'."
+        # Which form of address, not how often — that is set in prompt.txt, and
+        # the answer there is "rarely". An instruction to always name someone
+        # produces it in every sentence, which out loud sounds like a butler
+        # impression rather than a person.
+        _addr = (f"ADDRESS: When you do address the user by name, the name is "
+                 f"'{_user_name}'."
                  if _user_name
-                 else "ADDRESS: Address the user with the ordinary respectful form "
-                      "for a superior in the language you are currently speaking — "
-                      "\"sir\" in English, its everyday equivalent in any other "
-                      "language. Never an archaic or aristocratic form, and never "
-                      "the form from a different language than the one you are "
-                      "speaking in this sentence.")
+                 else "ADDRESS: When you address the user directly, use the "
+                      "ordinary respectful form for a superior in the language "
+                      "you are currently speaking — \"sir\" in English, its "
+                      "everyday equivalent in any other language. Never an "
+                      "archaic or aristocratic form, and never the form from a "
+                      "different language than the one you are speaking in this "
+                      "sentence.")
         identity_ctx = (
             f"[IDENTITY]\n"
             f"Your name is {self._asst_name}. "
