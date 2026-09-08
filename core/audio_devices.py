@@ -116,14 +116,34 @@ _PROBE_SECONDS = {"output": 0.6, "input": 0.35}
 _probe_results: dict = {}
 
 
-def _transport_works(idx: int, kind: str, api_key) -> bool:
-    """Does this host API actually move audio, or only pretend to?
+# How many devices on one host API may be probed before it is written off.
+# One is not enough: the first device on an API is regularly an HDMI output with
+# no monitor attached, or a disabled jack — silent for its own reasons, not the
+# API's. Rejecting the whole API on that evidence hides every working device
+# behind it, and the user cannot even select the headset they are wearing.
+# Three keeps the worst case under two seconds on the startup thread.
+_PROBE_MAX_DEVICES = 3
 
-    Probed once per API per direction and cached. Output writes silence, so the
-    probe is inaudible; input reads and discards."""
+
+def _api_carries_audio(found: list, kind: str, api_key) -> bool:
+    """Can ANY device on this host API move audio? Cached per API per direction."""
     if api_key in _probe_results:
         return _probe_results[api_key]
 
+    ok = False
+    for idx, _name in found[:_PROBE_MAX_DEVICES]:
+        if _transport_works(idx, kind):
+            ok = True
+            break
+
+    _probe_results[api_key] = ok
+    return ok
+
+
+def _transport_works(idx: int, kind: str) -> bool:
+    """Does this one device actually move audio, or only pretend to?
+
+    Output writes silence, so the probe is inaudible; input reads and discards."""
     ok = False
     try:
         import sounddevice as sd
@@ -169,7 +189,6 @@ def _transport_works(idx: int, kind: str, api_key) -> bool:
         print(f"[Audio] {kind} transport probe failed: {e}")
         ok = False
 
-    _probe_results[api_key] = ok
     return ok
 
 
@@ -303,7 +322,7 @@ def _query() -> dict[str, list[str]]:
                 if not found:
                     continue
                 # One probe per API per direction, cached, on this thread.
-                if not _transport_works(found[0][0], kind, (api_filter, kind)):
+                if not _api_carries_audio(found, kind, (api_filter, kind)):
                     continue
                 _chosen_api[kind] = api_filter
                 out[kind] = [_display_name(n, devices) for _i, n in found]
