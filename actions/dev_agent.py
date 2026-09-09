@@ -47,6 +47,20 @@ def _is_rate_limit(error: Exception) -> bool:
     return "429" in msg or "quota" in msg or "resource_exhausted" in msg
 
 
+def _is_transient(error: Exception) -> bool:
+    """A failure worth trying again in a moment.
+
+    503 UNAVAILABLE says so in its own message — "spikes in demand are usually
+    temporary, please try again later" — but it was not recognised anywhere, so
+    a file that failed on it was abandoned after one attempt while the build
+    carried on around the hole it left."""
+    msg = str(error).lower()
+    return any(x in msg for x in (
+        "503", "unavailable", "high demand", "overloaded",
+        "500", "internal error", "deadline exceeded", "timeout",
+    ))
+
+
 def _parse_traceback(output: str, project_files: list[str]) -> tuple[str | None, int | None]:
 
     pattern = re.compile(r'File ["\']([^"\']+\.py)["\'],\s+line\s+(\d+)', re.IGNORECASE)
@@ -61,11 +75,22 @@ def _parse_traceback(output: str, project_files: list[str]) -> tuple[str | None,
     return None, None
 
 
-def _classify_error(output: str) -> str:
+def _classify_error(output: str, project_files: list[str] | None = None) -> str:
 
     low = output.lower()
 
     if any(x in low for x in ("no module named", "modulenotfounderror", "importerror")):
+        # "No module named 'game'" is a dependency error only if 'game' is
+        # something pip can install. When it names one of the project's own
+        # modules, no package exists to install and every retry re-runs the
+        # same pip command against a name PyPI has never heard of. It is a
+        # missing file, and it needs writing, not installing.
+        m = re.search(r"no module named ['\"]([A-Za-z0-9_.\-]+)['\"]", low)
+        if m and project_files:
+            mod   = m.group(1).split(".")[0]
+            local = {Path(p).stem.lower() for p in project_files}
+            if mod in local:
+                return "missing_file"
         return "dependency_error"
 
     if "syntaxerror" in low or "invalid syntax" in low:
@@ -485,7 +510,7 @@ def _build_project(
             continue
 
         log(f"Writing {file_path}...")
-        for attempt in range(2):
+        for attempt in range(4):
             try:
                 code = _write_file(
                     file_info=file_info,
@@ -499,17 +524,63 @@ def _build_project(
                 time.sleep(0.4)
                 break
             except RateLimitError:
-                if attempt == 0:
+                if attempt < 3:
                     log("Rate limit — waiting 20s...")
                     time.sleep(20)
                 else:
                     log(f"Rate limit retry failed for {file_path}, skipping.")
             except Exception as e:
+                # A transient server error is not a reason to give up on a file:
+                # the project needs every one of them, and the next attempt
+                # usually succeeds.
+                if _is_transient(e) and attempt < 3:
+                    wait = 3 * (attempt + 1)
+                    log(f"{file_path}: server busy, retrying in {wait}s...")
+                    time.sleep(wait)
+                    continue
                 log(f"Failed to write {file_path}: {e}")
                 break
 
+    # Running a project that is missing files wastes every fix attempt on an
+    # ImportError no amount of fixing can resolve — the fixer cannot write a
+    # file that was never planned into existence. Check before running.
+    missing = [f.get("path", "") for f in sorted_files
+               if f.get("path") and f["path"] not in file_codes]
+    if missing:
+        log(f"Missing after write pass: {', '.join(missing)} — retrying them.")
+        for file_info in sorted_files:
+            file_path = file_info.get("path", "")
+            if file_path not in missing:
+                continue
+            try:
+                time.sleep(2)
+                file_codes[file_path] = _write_file(
+                    file_info=file_info,
+                    project_description=description,
+                    all_files=files,
+                    language=language,
+                    project_dir=project_dir,
+                    already_written=file_codes,
+                )
+                log(f"Recovered {file_path}.")
+            except Exception as e:
+                log(f"Still could not write {file_path}: {e}")
+
     if not file_codes:
         msg = "I could not write any project files, sir."
+        if speak: speak(msg)
+        return msg
+
+    still_missing = [f.get("path", "") for f in sorted_files
+                     if f.get("path") and f["path"] not in file_codes]
+    if still_missing:
+        # Say which files are missing rather than running the wreck and
+        # reporting whatever error the absence happens to produce.
+        msg = (f"'{proj_name}' is incomplete — {len(still_missing)} of "
+               f"{len(sorted_files)} files could not be written "
+               f"({', '.join(still_missing)}). The server was refusing "
+               f"requests. The rest is saved in {project_dir}; ask me to "
+               f"finish it and I will write the missing files.")
         if speak: speak(msg)
         return msg
 
@@ -539,7 +610,30 @@ def _build_project(
         if attempt == MAX_FIX_ATTEMPTS:
             break
 
-        error_type = _classify_error(last_output)
+        error_type = _classify_error(last_output, list(file_codes.keys()))
+        if error_type == "missing_file":
+            # The fixer edits files that exist; it cannot conjure a missing one.
+            # Write it, then run again.
+            m = re.search(r"No module named ['\"]([A-Za-z0-9_.\-]+)['\"]",
+                          last_output, re.IGNORECASE)
+            wanted = m.group(1).split(".")[0].lower() if m else ""
+            target = next((f for f in sorted_files
+                           if Path(f.get("path", "")).stem.lower() == wanted), None)
+            if target:
+                log(f"{target['path']} is missing — writing it now.")
+                try:
+                    file_codes[target["path"]] = _write_file(
+                        file_info=target,
+                        project_description=description,
+                        all_files=files,
+                        language=language,
+                        project_dir=project_dir,
+                        already_written=file_codes,
+                    )
+                    continue
+                except Exception as e:
+                    log(f"Could not write {target['path']}: {e}")
+
         if error_type == "dependency_error" and auto_installs < 3:
             installed = _try_auto_install(last_output, project_dir)
             if installed:
