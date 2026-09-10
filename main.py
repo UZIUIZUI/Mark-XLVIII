@@ -1621,13 +1621,18 @@ class JarvisLive:
                 # happens to have arrived. The timeout keeps a short reply that
                 # never reaches this size from being held back.
                 if not speaking:
-                    while len(batch) < PREBUFFER_BYTES:
+                    while len(batch) < PREBUFFER_BYTES and not self._interrupted:
                         try:
                             batch.extend(await asyncio.wait_for(
                                 self.audio_in_queue.get(), timeout=0.15))
                         except asyncio.TimeoutError:
                             break
                     speaking = True
+
+                # Interrupted while the cushion was filling: this audio belongs
+                # to a turn the user has already talked over. Drop it.
+                if self._interrupted:
+                    continue
 
                 # Drive the HUD waveform from JARVIS's own voice while speaking.
                 try:
