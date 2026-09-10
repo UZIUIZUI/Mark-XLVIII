@@ -1549,19 +1549,29 @@ class JarvisLive:
             print(f"[JARVIS] 🔊 Output device: {_spk_name}")
 
         def _open_spk(dev):
-            st = sd.RawOutputStream(
-                samplerate=RECEIVE_SAMPLE_RATE,
-                channels=CHANNELS,
-                dtype="int16",
-                blocksize=CHUNK_SIZE,
-                device=dev,
-                # Ask the backend for its safe buffer size rather than its
-                # smallest. On Windows the speakers regularly end up on MME,
-                # where the low-latency default underruns audibly.
-                latency="high",
-            )
-            st.start()
-            return st
+            # "high" asks the backend for its safe buffer size rather than its
+            # smallest — on Windows the speakers regularly end up on MME, whose
+            # low-latency default underruns audibly. Not every driver accepts
+            # the hint, and a stutter is worth fixing but never worth losing the
+            # voice over, so a rejection falls back to the plain stream.
+            for latency in ("high", None):
+                kwargs = {} if latency is None else {"latency": latency}
+                try:
+                    st = sd.RawOutputStream(
+                        samplerate=RECEIVE_SAMPLE_RATE,
+                        channels=CHANNELS,
+                        dtype="int16",
+                        blocksize=CHUNK_SIZE,
+                        device=dev,
+                        **kwargs,
+                    )
+                    st.start()
+                    return st
+                except Exception as e:
+                    if latency is None:
+                        raise
+                    print(f"[JARVIS] 🔊 latency='high' rejected ({e}) — "
+                          f"opening with driver default")
 
         try:
             stream = _open_spk(_spk_dev)

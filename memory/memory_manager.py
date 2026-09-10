@@ -213,8 +213,19 @@ def format_rules_for_prompt(memory: dict | None) -> str:
 
     Unlike the memory block below it, this one has no budget and no index. A
     rule the model has to look up is a rule it will not know it is breaking."""
-    rules = (memory or {}).get(RULES_CATEGORY, {}) or {}
-    lines = [f"  - {_entry_value(e)}" for e in rules.values() if _entry_value(e)]
+    # This runs while the session is being built, so anything it raises stops
+    # JARVIS from connecting at all — on every retry, since the cause is on
+    # disk. The store is a plain JSON file people edit by hand, so it is not
+    # safe to assume the shape is what we wrote.
+    rules = (memory or {}).get(RULES_CATEGORY) if isinstance(memory, dict) else None
+    if isinstance(rules, dict):
+        entries = rules.values()
+    elif isinstance(rules, list):
+        entries = rules
+    else:
+        return ""
+
+    lines = [f"  - {_entry_value(e)}" for e in entries if _entry_value(e)]
     if not lines:
         return ""
     return (
@@ -242,8 +253,8 @@ def forget_rule(key: str) -> str:
     Matches loosely on purpose: the user says "forget the news thing", not the
     snake_case key the model happened to invent months ago."""
     memory = load_memory()
-    rules  = memory.get(RULES_CATEGORY, {}) or {}
-    if not rules:
+    rules  = memory.get(RULES_CATEGORY)
+    if not isinstance(rules, dict) or not rules:
         return "No rules are stored."
 
     needle = _slug(key)
