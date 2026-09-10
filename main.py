@@ -285,7 +285,11 @@ TOOL_DECLARATIONS = [
             "look at camera, analyze my screen, etc. "
             "You have NO visual ability without this tool. "
             "After the image is captured it is sent directly to you — describe what you see and answer the user's question. "
-            "When using camera: the live view stays open until user says close it or calls close_camera."
+            "When using camera: the live view stays open until user says close it or calls close_camera. "
+            "You MAY call other tools once you have seen the image, and should when the "
+            "user's request needs it: if they want you to look something up, buy it, price "
+            "it, or find more pictures of it, identify the thing in the image first and "
+            "then call web_search with what you actually saw."
         ),
         "parameters": {
             "type": "OBJECT",
