@@ -62,6 +62,7 @@ from actions.send_message      import send_message
 from actions.reminder          import reminder
 from actions.computer_settings import computer_settings
 from actions.screen_processor  import _capture_camera, _capture_screen
+from actions.lens_search       import lens_search
 from actions.youtube_video     import youtube_video
 from actions.desktop           import desktop_control
 from actions.browser_control   import browser_control
@@ -298,6 +299,29 @@ TOOL_DECLARATIONS = [
                 "text":  {"type": "STRING", "description": "The question or instruction about the captured image"}
             },
             "required": ["text"]
+        }
+    },
+    {
+        "name": "lens_search",
+        "description": (
+            "Look at the camera or screen AND search the web about what is there, "
+            "in one step. This is the tool for 'what is this?', 'search for this', "
+            "'what does this cost', 'find me this' while pointing at something. "
+            "Prefer it over screen_process whenever the user wants information "
+            "from the internet about the thing, not just a description of it — "
+            "screen_process can only describe, it cannot look anything up. "
+            "It identifies the object precisely (brand, model, species, printed "
+            "text) and searches for that. It CANNOT find where a specific "
+            "photograph was published — say so if that is what they want."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "source": {"type": "STRING", "description": "'camera' (default) or 'screen'"},
+                "intent": {"type": "STRING", "description": "identify (what is it) | buy (price and where) | similar (more pictures) | text (read what is written)"},
+                "question": {"type": "STRING", "description": "The user's own question about the image, if they asked something specific"},
+            },
+            "required": []
         }
     },
     {
@@ -1201,6 +1225,12 @@ class JarvisLive:
             elif name == "youtube_video":
                 r = await loop.run_in_executor(None, lambda: youtube_video(parameters=args, response=None, player=self.ui))
                 result = r or "Done."
+
+            elif name == "lens_search":
+                # Capture plus a grounded lookup — seconds, and it blocks, so it
+                # goes to a thread like every other slow tool.
+                result = await loop.run_in_executor(
+                    None, lambda: lens_search(parameters=args, player=self.ui))
 
             elif name == "screen_process":
                 import time as _t_mod
