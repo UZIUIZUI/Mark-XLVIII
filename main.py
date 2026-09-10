@@ -808,6 +808,7 @@ class JarvisLive:
         self._loop                = None
         self._is_speaking         = False
         self._speaking_lock       = threading.Lock()
+        self._play_generation     = 0       # only the newest playback task speaks
         self._phone_active        = False   # True while phone mic is streaming; pauses PC mic
         self._pending_vision       = None    # (img_bytes, mime_type, question, angle) to inject after tool response
         self._vision_cam_active    = False   # True if camera was opened for vision → auto-close after response
@@ -1531,6 +1532,15 @@ class JarvisLive:
             raise
 
     async def _play_audio(self):
+        # Each reconnect starts a fresh playback task. If an older one is still
+        # alive — a cancellation that has not landed yet because it is parked in
+        # a blocking stream.write() on a worker thread — both read from the same
+        # queue and write to two different output devices, and the user hears
+        # JARVIS twice. Claiming a generation here retires any predecessor at
+        # its next loop pass, whatever cancellation is doing.
+        self._play_generation += 1
+        my_generation = self._play_generation
+
         print("[JARVIS] 🔊 Play started")
 
         _spk_name = get_output_device()
@@ -1576,6 +1586,9 @@ class JarvisLive:
 
         try:
             while True:
+                if my_generation != self._play_generation:
+                    break          # a newer playback task owns the speakers now
+
                 try:
                     chunk = await asyncio.wait_for(
                         self.audio_in_queue.get(),
@@ -1632,6 +1645,13 @@ class JarvisLive:
             raise
         finally:
             self.set_speaking(False)
+            # Nothing closed this before, so every reconnect left another open
+            # output stream holding a device for the life of the process.
+            try:
+                stream.stop()
+                stream.close()
+            except Exception:
+                pass
             stream.stop()
             stream.close()
 
