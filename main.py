@@ -83,6 +83,7 @@ from core.plugin_loader        import discover_plugins
 from core                      import undo as undo_stack
 from core                      import confirm as confirm_gate
 from core                      import audio_devices
+from core.voice_id             import VoiceWatcher
 
 def get_base_dir():
     if getattr(sys, "frozen", False):return Path(sys.executable).parent
@@ -190,13 +191,19 @@ TOOL_DECLARATIONS = [
             "or topics — always prefer this over guessing. "
             "Modes: 'search' (default), 'news' (latest headlines on a topic), "
             "'research' (deep comprehensive answer), 'price' (product cost lookup), "
-            "'compare' (side-by-side comparison of items)."
+            "'compare' (side-by-side comparison of items), "
+            "'person' (who someone is — use this whenever the user asks about a "
+            "named human being, public or private), "
+            "'images' (pictures of something — use whenever the user asks to SEE "
+            "something, or asks for a photo, picture or image; the pictures open "
+            "on their screen, so describe what was found rather than reading out "
+            "any address)."
         ),
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "query":  {"type": "STRING", "description": "Search query or topic"},
-                "mode":   {"type": "STRING", "description": "search | news | research | price | compare"},
+                "query":  {"type": "STRING", "description": "Search query, topic, or person's name"},
+                "mode":   {"type": "STRING", "description": "search | news | research | price | compare | person | images"},
                 "items":  {"type": "ARRAY",  "items": {"type": "STRING"}, "description": "Items to compare (compare mode)"},
                 "aspect": {"type": "STRING", "description": "Comparison aspect: price | specs | reviews | features"},
             },
@@ -809,6 +816,7 @@ class JarvisLive:
         self._is_speaking         = False
         self._speaking_lock       = threading.Lock()
         self._play_generation     = 0       # only the newest playback task speaks
+        self._voice_watcher       = VoiceWatcher()   # notices a second speaker
         self._phone_active        = False   # True while phone mic is streaming; pauses PC mic
         self._pending_vision       = None    # (img_bytes, mime_type, question, angle) to inject after tool response
         self._vision_cam_active    = False   # True if camera was opened for vision → auto-close after response
@@ -1355,6 +1363,16 @@ class JarvisLive:
                 except Exception:
                     pass
 
+                # Notice when a different voice takes over the microphone.
+                # Everything here is best-effort: this is the audio callback,
+                # and an exception costs the user their microphone.
+                try:
+                    who = self._voice_watcher.observe(indata, SEND_SAMPLE_RATE)
+                    if who:
+                        loop.call_soon_threadsafe(self._on_speaker_change, who)
+                except Exception:
+                    pass
+
         try:
             def _open_mic(dev):
                 return sd.InputStream(
@@ -1729,6 +1747,64 @@ class JarvisLive:
             turn_complete=True,
         )
         self.ui.write_log("SYS: Startup greeting sent.")
+
+    # ── Who is at the microphone ────────────────────────────────────────────────
+
+    def _partner_name(self) -> str:
+        """The name stored for the household's other voice, if there is one.
+
+        Read from memory rather than configured, because the user tells JARVIS
+        who their partner is in conversation and it is saved there already."""
+        try:
+            rel = load_memory().get("relationships", {}) or {}
+            for key in ("wife", "partner", "husband", "girlfriend", "boyfriend", "spouse"):
+                entry = rel.get(key)
+                val = (entry.get("value") if isinstance(entry, dict) else entry) or ""
+                if str(val).strip():
+                    return str(val).strip()
+        except Exception:
+            pass
+        return ""
+
+    def _on_speaker_change(self, who: str) -> None:
+        """A different voice has been at the microphone for about a second.
+
+        This is a pitch estimate, not recognition — see core/voice_id. So the
+        model is told what was actually observed ("a higher voice") along with
+        who it is likely to be, and is instructed to greet without asserting
+        the identity as fact. Being wrong should cost a friendly correction,
+        nothing more."""
+        if not self.session or not self._loop:
+            return
+
+        partner = self._partner_name()
+        if who == "higher":
+            if partner:
+                note = (f"[SPEAKER_CHANGE] A higher-pitched voice has taken over the "
+                        f"microphone — most likely {partner}. Greet {partner} warmly "
+                        f"by name in one short sentence, in the language being spoken. "
+                        f"Do not explain how you noticed, and do not claim certainty: "
+                        f"if it is someone else they will say so, and you simply "
+                        f"carry on.")
+            else:
+                note = ("[SPEAKER_CHANGE] A different, higher-pitched voice is at the "
+                        "microphone. Greet them in one short friendly sentence without "
+                        "guessing a name.")
+        else:
+            # Back to the usual voice: no announcement, just stop addressing
+            # the other person. Saying "ah, you are back" every time grates.
+            return
+
+        self.ui.write_log(f"SYS: Different voice detected{f' — greeting {partner}' if partner else ''}.")
+
+        async def _tell():
+            try:
+                await self.session.send_client_content(
+                    turns={"parts": [{"text": note}]}, turn_complete=True)
+            except Exception as e:
+                print(f"[Voice] Could not announce speaker change: {e}")
+
+        asyncio.create_task(_tell())
 
     # ── Session memory ──────────────────────────────────────────────────────────
 

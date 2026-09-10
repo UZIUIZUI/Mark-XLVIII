@@ -164,6 +164,65 @@ def _ddg_news(query: str, max_results: int = 8) -> list[dict]:
     return results
 
 
+def _ddg_images(query: str, max_results: int = 8) -> list[dict]:
+    """Image search. Gemini grounding cannot return pictures at all, so this
+    one mode is DDG-only rather than DDG-as-fallback."""
+    DDGS = _get_ddgs()
+    results = []
+    try:
+        with DDGS() as ddgs:
+            for r in ddgs.images(query, max_results=max_results):
+                results.append({
+                    "title":  r.get("title", ""),
+                    "image":  r.get("image", "") or r.get("thumbnail", ""),
+                    "source": r.get("url", "") or r.get("source", ""),
+                })
+    except Exception as e:
+        print(f"[WebSearch] ⚠️ DDG images() failed: {e}")
+    return [r for r in results if r.get("image")]
+
+
+def _images(query: str, open_in_browser: bool = True) -> str:
+    results = _ddg_images(query)
+    if not results:
+        return (f"No images found for: {query}")
+
+    # A voice assistant reading out image URLs is useless, so the pictures are
+    # put on screen. The result text stays descriptive: it is what JARVIS has
+    # to talk from.
+    if open_in_browser:
+        try:
+            import webbrowser
+            from urllib.parse import quote_plus
+            webbrowser.open(f"https://duckduckgo.com/?q={quote_plus(query)}&iax=images&ia=images")
+        except Exception as e:
+            print(f"[WebSearch] ⚠️ Could not open image results: {e}")
+
+    lines = [f"Found {len(results)} images for: {query}",
+             "(opened on screen in the browser)", ""]
+    for i, r in enumerate(results[:6], 1):
+        lines.append(f"{i}. {r['title'] or 'untitled'}")
+        if r.get("source"):
+            lines.append(f"   From: {r['source']}")
+    return "\n".join(lines).strip()
+
+
+def _person(query: str) -> str:
+    """Research a person. Same engines as research, but the query is shaped so
+    the results are about who they are rather than pages that mention the name."""
+    shaped = f"{query} biography who is background career"
+    if _gemini_available():
+        try:
+            return _gemini_search(
+                f"Who is {query}? Give a factual summary: what they are known "
+                f"for, background, current work. Say plainly if you are unsure "
+                f"or if several different people share the name."
+            )
+        except Exception as e:
+            _log_gemini_failure("Gemini person lookup", e)
+    return _format_ddg(query, _ddg_search(shaped, max_results=8))
+
+
 def _format_ddg(query: str, results: list[dict]) -> str:
     if not results:
         return f"No results found for: {query}"
@@ -371,6 +430,10 @@ def web_search(
             return _research(query)
         if mode == "price":
             return _price(query)
+        if mode in ("images", "image", "photo", "picture"):
+            return _images(query)
+        if mode == "person":
+            return _person(query)
         return _search(query)
 
     except Exception as e:
