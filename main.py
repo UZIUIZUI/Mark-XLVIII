@@ -2066,6 +2066,15 @@ class JarvisLive:
         # for host-API enumeration on the Qt thread.
         audio_devices.prefetch()
 
+        # Warm the semantic-search model on a background thread. Optional in
+        # every sense: not installed, download fails, anything — memory recall
+        # falls back to keyword search and nothing here is allowed to raise.
+        try:
+            from memory import embeddings as _emb
+            _emb.start_loading()
+        except Exception:
+            pass
+
         # Start dashboard (optional — needs: pip install fastapi "uvicorn[standard]" cryptography)
         try:
             from dashboard.server import DashboardServer

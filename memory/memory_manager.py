@@ -422,13 +422,18 @@ def _score(query_words: list[str], cat: str, key: str, value: str) -> int:
     for w in query_words:
         if not w:
             continue
+        # Substring matching on short words is noise, not relevance: "ist" in
+        # the German for "who IS my sister" matches both "s-ist-er" and
+        # "ass-ist-ant", so a question about a sibling scored a hit on a
+        # software project. Only whole-word equality counts below four letters.
+        loose = len(w) >= 4
         if w == hay_key:
             score += 10
-        elif w in hay_key:
+        elif loose and w in hay_key:
             score += 6
-        if w in hay_val:
+        if w in hay_val.split() or (loose and w in hay_val):
             score += 3
-        if w in cat:
+        if loose and w in cat:
             score += 1
     return score
 
@@ -441,17 +446,43 @@ def search_memory(query: str, limit: int = 8) -> str:
     memory = load_memory()
     words  = [w for w in re.split(r"[^\w]+", (query or "").lower()) if len(w) > 1]
 
-    rows: list[tuple[int, str, str, str]] = []
+    # Every stored fact, with its lexical score. Nothing is dropped yet: a fact
+    # that shares no words with the question can still be the right answer, and
+    # the semantic pass below is the only thing that can tell.
+    candidates: list[tuple[int, str, str, str]] = []
     for cat, items in memory.items():
         if not isinstance(items, dict):
             continue                     # skip 'sessions', which is a list
         for key, entry in items.items():
             val = _entry_value(entry)
-            if not val:
-                continue
-            s = _score(words, cat, key, val) if words else 1
-            if s > 0:
-                rows.append((s, cat, key, val))
+            if val:
+                candidates.append((_score(words, cat, key, val) if words else 1,
+                                   cat, key, val))
+
+    rows = [c for c in candidates if c[0] > 0]
+
+    # Semantic pass. "Who is my sister?" shares no word with "ayse: older
+    # sister", so word overlap scores it zero and the answer is never seen.
+    # Meaning-similarity finds it. Returns None whenever the model is not
+    # available, in which case this is exactly the search it always was.
+    if query:
+        try:
+            from memory import embeddings as _emb
+            texts  = {f"{_pretty(k)}: {v}": (s, c, k, v) for s, c, k, v in candidates}
+            scored = _emb.rank(query, list(texts))
+            if scored:
+                merged = {}
+                for text, sim in scored.items():
+                    lex, cat, key, val = texts[text]
+                    # Lexical wins where it fires — an exact name should not be
+                    # outranked by something that merely reads similarly. Below
+                    # 0.35 similarity is noise at this model size.
+                    if lex > 0 or sim >= 0.35:
+                        merged[(cat, key)] = (lex * 10 + sim * 6, cat, key, val)
+                if merged:
+                    rows = list(merged.values())
+        except Exception as e:
+            print(f"[Memory] Semantic search skipped: {e}")
 
     if not rows:
         return (f"Nothing stored about '{query}'." if query

@@ -27,3 +27,8 @@ win10toast; sys_platform == "win32"
 pywinauto; sys_platform == "win32"
 pywin32; sys_platform == "win32"
 qrcode[pil]
+
+# Semantic memory search — optional. Without it, recall falls back to keyword
+# matching and everything else works unchanged. ONNX-based, so ~50 MB rather
+# than the ~2 GB PyTorch would pull in.
+fastembed>=0.3.0
