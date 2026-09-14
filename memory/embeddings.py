@@ -52,11 +52,20 @@ _cache_dirty = False
 def _load_model() -> None:
     global _model, _load_failed
     try:
+        import time as _time
         from fastembed import TextEmbedding
+
+        # Say something BEFORE the slow part. The first run downloads ~50 MB and
+        # can take minutes; with no line here the log is simply silent, which
+        # looks identical to the feature not being installed at all.
+        print("[Memory] Loading semantic search model "
+              "(first run downloads ~50 MB — keyword search works meanwhile)...")
+        t0 = _time.monotonic()
+
         model = TextEmbedding(model_name=MODEL_NAME)
         with _model_lock:
             _model = model
-        print("[Memory] 🧠 Semantic search ready.")
+        print(f"[Memory] 🧠 Semantic search ready ({_time.monotonic() - t0:.1f}s).")
     except ImportError:
         _load_failed = True
         print("[Memory] Semantic search unavailable (fastembed not installed) — "
