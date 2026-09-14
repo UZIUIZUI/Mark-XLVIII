@@ -1662,6 +1662,22 @@ class JarvisLive:
                         and self._turn_done_event.is_set()
                         and self.audio_in_queue.empty()
                     ):
+                        # An empty queue means the audio has been handed to the
+                        # sound card, NOT that it has been heard: the card is
+                        # still playing what it holds. Opening the microphone
+                        # now lets JARVIS hear his own last words through the
+                        # speakers, which the model reads as being talked over —
+                        # and the reply cuts off mid-sentence with no error
+                        # anywhere. Wait out the buffer first.
+                        try:
+                            tail = float(getattr(stream, "latency", 0.0) or 0.0)
+                        except Exception:
+                            tail = 0.0
+                        # Plus a margin for the speakers and the room. Capped,
+                        # because a wrong latency reading must not strand the
+                        # microphone shut.
+                        await asyncio.sleep(min(tail + 0.25, 1.2))
+
                         self.set_speaking(False)
                         speaking = False
                         self._turn_done_event.clear()
