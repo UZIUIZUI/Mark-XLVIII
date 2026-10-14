@@ -37,6 +37,7 @@ from actions.file_processor import file_processor
 from actions.flight_finder     import flight_finder
 from actions.open_app          import open_app
 from actions.weather_report    import weather_action
+from actions.trading_bot       import trading_bot
 from actions.send_message      import send_message
 from actions.reminder          import reminder
 from actions.computer_settings import computer_settings
@@ -140,6 +141,18 @@ TOOL_DECLARATIONS = [
         "parameters": {
             "type": "OBJECT",
             "properties": {},
+        }
+    },
+    {
+        "name": "trading_bot",
+        "description": "Crypto trading bot with market analysis. Default is paper mode (simulated). Actions: start, stop, status, analyze, balance, deposit_info.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action": {"type": "STRING", "description": "start | stop | status | analyze | balance | deposit_info"},
+                "confirm_live": {"type": "BOOLEAN", "description": "Only true if the user explicitly confirmed trading with real money"}
+            },
+            "required": ["action"]
         }
     },
     {
@@ -678,6 +691,10 @@ class JarvisLive:
             elif name == "weather_report":
                 r = await loop.run_in_executor(None, lambda: weather_action(parameters=args, player=self.ui))
                 result = r or "Weather delivered."
+
+            elif name == "trading_bot":
+                r = await loop.run_in_executor(None, lambda: trading_bot(parameters=args, player=self.ui))
+                result = r or "Done."
 
             elif name == "browser_control":
                 r = await loop.run_in_executor(None, lambda: browser_control(parameters=args, player=self.ui))

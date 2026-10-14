@@ -1,0 +1,12 @@
+{
+  "exchange": "kraken",
+  "api_key": "",
+  "api_secret": "",
+  "mode": "paper",
+  "symbol": "BTC/EUR",
+  "timeframe": "15m",
+  "trade_fraction": 0.10,
+  "stop_loss_pct": 2.0,
+  "take_profit_pct": 4.0,
+  "max_daily_loss_pct": 5.0
+}
