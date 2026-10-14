@@ -37,7 +37,7 @@ from actions.file_processor import file_processor
 from actions.flight_finder     import flight_finder
 from actions.open_app          import open_app
 from actions.weather_report    import weather_action
-from actions.trading_bot       import trading_bot
+from actions.trading_bot       import trading_bot, autostart as trading_autostart
 from actions.send_message      import send_message
 from actions.reminder          import reminder
 from actions.computer_settings import computer_settings
@@ -1318,6 +1318,7 @@ class JarvisLive:
 
 def main():
     ui = JarvisUI("face.png")
+    trading_autostart()
 
     def runner():
         ui.wait_for_api_key()

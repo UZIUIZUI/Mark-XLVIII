@@ -1,0 +1,4 @@
+
+config/trading.json
+memory/trading_state.json
+memory/trading_journal.csv

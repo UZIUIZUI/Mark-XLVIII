@@ -29,9 +29,14 @@ DEFAULTS = {
     "paper_start_balance": 1000.0,
     "risk_per_trade_pct": 1.0,   # max loss per trade as % of equity (ATR-sized)
     "atr_stop_mult": 2.0,        # stop distance = 2 x ATR, trails upward
+    "max_errors": 5,             # consecutive errors before the bot halts and alerts you
+    "telegram_token": "",        # optional alerts: BotFather token + your chat id
+    "telegram_chat_id": "",
     "fee_pct": 0.26,             # taker fee per side, counted in paper mode too
 }
 
+JOURNAL_PATH = BASE_DIR / "memory" / "trading_journal.csv"
+_beat   = 0.0
 _thread = None
 _stop   = threading.Event()
 _lock   = threading.Lock()
@@ -100,6 +105,25 @@ def analyze(ex, cfg) -> dict:
     return {"price": closes[-1], "atr": atr, "ema9": fast, "ema21": slow, "rsi": rsi, "signal": signal}
 
 
+def _notify(cfg, msg):
+    """Alert via Telegram (if configured); always append to the journal."""
+    print(f"[trading] {msg}")
+    if cfg.get("telegram_token") and cfg.get("telegram_chat_id"):
+        try:
+            import requests
+            requests.post(f"https://api.telegram.org/bot{cfg['telegram_token']}/sendMessage",
+                          data={"chat_id": cfg["telegram_chat_id"], "text": f"Jarvis Trading: {msg}"}, timeout=10)
+        except Exception:
+            pass
+
+
+def _journal(cfg, line):
+    JOURNAL_PATH.parent.mkdir(exist_ok=True)
+    with open(JOURNAL_PATH, "a", encoding="utf-8") as f:
+        f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')},{cfg['mode']},{cfg['symbol']},{line}\n")
+    _notify(cfg, line)
+
+
 def _equity(st, price):
     return st["cash"] + st["qty"] * price
 
@@ -117,6 +141,8 @@ def _step(ex, cfg, st):
     if _equity(st, price) < st["day_start_equity"] * (1 - cfg["max_daily_loss_pct"] / 100):
         if st["qty"] > 0:
             _sell(ex, cfg, st, price, "daily loss limit")
+        if not st["halted"]:
+            _journal(cfg, "HALT: daily loss limit reached")
         st["halted"] = True
         return
     if st["halted"]:
@@ -141,6 +167,7 @@ def _step(ex, cfg, st):
             st["cash"] -= spend * (1 + cfg["fee_pct"] / 100)
             st["qty"], st["entry"], st["stop"] = qty, price, price - dist
             _log(st, f"BUY {qty:.6f} @ {price:.2f}")
+            _journal(cfg, f"BUY {qty:.6f} @ {price:.2f} stop {st['stop']:.2f}")
 
 
 def _sell(ex, cfg, st, price, why):
@@ -148,24 +175,47 @@ def _sell(ex, cfg, st, price, why):
         ex.create_market_sell_order(cfg["symbol"], st["qty"])
     st["cash"] += st["qty"] * price * (1 - cfg["fee_pct"] / 100)
     _log(st, f"SELL {st['qty']:.6f} @ {price:.2f} ({why})")
+    _journal(cfg, f"SELL {st['qty']:.6f} @ {price:.2f} ({why})")
     st["qty"], st["entry"] = 0.0, 0.0
 
 
 def _loop():
-    cfg = _cfg()
-    ex  = _exchange(cfg)
+    """Monitoring loop: heartbeat each cycle, reconnect on errors, halt + alert after repeated failures."""
+    global _beat
+    cfg, ex, errors = _cfg(), None, 0
+    _notify(cfg, f"Bot started ({cfg['mode']}, {cfg['symbol']})")
     while not _stop.is_set():
         try:
+            ex = ex or _exchange(cfg)
             with _lock:
                 st = _load_state(cfg)
                 _step(ex, cfg, st)
                 _save_state(st)
+            errors, _beat = 0, time.time()
         except Exception as e:
+            errors += 1
+            ex = None                       # force reconnect next cycle
             with _lock:
                 st = _load_state(cfg)
-                _log(st, f"error: {e}")
+                _log(st, f"error {errors}: {e}")
                 _save_state(st)
-        _stop.wait(cfg["interval_sec"])
+            if errors >= cfg["max_errors"]:
+                _notify(cfg, f"STOPPED after {errors} consecutive errors: {e}. Open positions stay open, check manually!")
+                return
+        _stop.wait(cfg["interval_sec"] * (1 if errors == 0 else min(errors, 5)))
+    _notify(cfg, "Bot stopped")
+
+
+def autostart(player=None):
+    """Call at Jarvis startup: resumes monitoring if config has "autostart": true."""
+    global _thread
+    try:
+        if _cfg().get("autostart") and not (_thread and _thread.is_alive()):
+            _stop.clear()
+            _thread = threading.Thread(target=_loop, daemon=True)
+            _thread.start()
+    except Exception:
+        pass
 
 
 def trading_bot(parameters: dict, player=None, session_memory=None) -> str:
@@ -213,6 +263,7 @@ def trading_bot(parameters: dict, player=None, session_memory=None) -> str:
         price = analyze(_exchange(cfg), cfg)["price"]
     except Exception:
         price = st["entry"] or 0
-    return (f"Bot {'running' if running else 'stopped'} ({cfg['mode']}). Equity {_equity(st, price):.2f}, "
+    age = f", last check {int(time.time() - _beat)}s ago" if _beat else ""
+    return (f"Bot {'running' if running else 'stopped'} ({cfg['mode']}){age}. Equity {_equity(st, price):.2f}, "
             f"cash {st['cash']:.2f}, position {st['qty']:.6f}{' - HALTED today' if st['halted'] else ''}. "
             f"Last: {'; '.join(st['log'][-3:]) or 'no trades yet'}")
