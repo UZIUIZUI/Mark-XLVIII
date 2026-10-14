@@ -27,6 +27,9 @@ DEFAULTS = {
     "take_profit_pct": 4.0,
     "max_daily_loss_pct": 5.0,   # bot halts for the day beyond this
     "paper_start_balance": 1000.0,
+    "risk_per_trade_pct": 1.0,   # max loss per trade as % of equity (ATR-sized)
+    "atr_stop_mult": 2.0,        # stop distance = 2 x ATR, trails upward
+    "fee_pct": 0.26,             # taker fee per side, counted in paper mode too
 }
 
 _thread = None
@@ -57,7 +60,8 @@ def _save_state(st):
 def _exchange(cfg):
     import ccxt
     ex = getattr(ccxt, cfg["exchange"])({
-        "apiKey": cfg["api_key"], "secret": cfg["api_secret"], "enableRateLimit": True})
+        "apiKey": cfg["api_key"], "secret": cfg["api_secret"], "enableRateLimit": True,
+        "options": {"defaultType": "spot"}})  # spot only: no leverage/margin/futures, so no debt
     return ex
 
 
@@ -77,16 +81,23 @@ def _rsi(closes, n=14):
     return 100.0 if losses == 0 else 100 - 100 / (1 + gains / losses)
 
 
+def _atr(ohlcv, n=14):
+    trs = [max(h - l, abs(h - pc), abs(l - pc))
+           for (_, _, h, l, _, _), pc in zip(ohlcv[1:], [c[4] for c in ohlcv[:-1]])]
+    return sum(trs[-n:]) / n
+
+
 def analyze(ex, cfg) -> dict:
     ohlcv  = ex.fetch_ohlcv(cfg["symbol"], cfg["timeframe"], limit=120)
     closes = [c[4] for c in ohlcv]
     fast, slow, rsi = _ema(closes[-60:], 9), _ema(closes[-60:], 21), _rsi(closes)
+    ema50, atr = _ema(closes[-100:], 50), _atr(ohlcv)
     signal = "hold"
-    if fast > slow and rsi < 70:
+    if fast > slow and rsi < 70 and closes[-1] > ema50:  # only buy in an uptrend
         signal = "buy"
     elif fast < slow or rsi > 75:
         signal = "sell"
-    return {"price": closes[-1], "ema9": fast, "ema21": slow, "rsi": rsi, "signal": signal}
+    return {"price": closes[-1], "atr": atr, "ema9": fast, "ema21": slow, "rsi": rsi, "signal": signal}
 
 
 def _equity(st, price):
@@ -112,27 +123,30 @@ def _step(ex, cfg, st):
         return
     if st["qty"] > 0:
         chg = (price / st["entry"] - 1) * 100
-        if chg <= -cfg["stop_loss_pct"]:
-            _sell(ex, cfg, st, price, f"stop-loss {chg:.1f}%")
+        st["stop"] = max(st.get("stop", 0), price - cfg["atr_stop_mult"] * a["atr"])  # trailing
+        if price <= st["stop"]:
+            _sell(ex, cfg, st, price, f"ATR stop {chg:.1f}%")
         elif chg >= cfg["take_profit_pct"]:
             _sell(ex, cfg, st, price, f"take-profit {chg:.1f}%")
         elif a["signal"] == "sell":
             _sell(ex, cfg, st, price, "sell signal")
     elif a["signal"] == "buy":
-        spend = st["cash"] * cfg["trade_fraction"]
+        dist  = cfg["atr_stop_mult"] * a["atr"]
+        risk  = _equity(st, price) * cfg["risk_per_trade_pct"] / 100
+        spend = min(risk / dist * price, st["cash"] * cfg["trade_fraction"], st["cash"] / (1 + cfg["fee_pct"] / 100))
         if spend > 5:
             qty = spend / price
             if live:
                 ex.create_market_buy_order(cfg["symbol"], qty)
-            st["cash"] -= spend
-            st["qty"], st["entry"] = qty, price
+            st["cash"] -= spend * (1 + cfg["fee_pct"] / 100)
+            st["qty"], st["entry"], st["stop"] = qty, price, price - dist
             _log(st, f"BUY {qty:.6f} @ {price:.2f}")
 
 
 def _sell(ex, cfg, st, price, why):
     if cfg["mode"] == "live":
         ex.create_market_sell_order(cfg["symbol"], st["qty"])
-    st["cash"] += st["qty"] * price
+    st["cash"] += st["qty"] * price * (1 - cfg["fee_pct"] / 100)
     _log(st, f"SELL {st['qty']:.6f} @ {price:.2f} ({why})")
     st["qty"], st["entry"] = 0.0, 0.0
 
