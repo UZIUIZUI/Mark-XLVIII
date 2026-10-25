@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b0b10">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
+<title>Content-Maschine</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header><h1>⚡ Content-Maschine</h1><span id="badge"></span></header>
+<main>
+  <section id="tab-analyse" class="tab active">
+    <div class="card">
+      <h2>Material analysieren</h2>
+      <p class="muted">Eigene oder fremde Bilder/Videos hochladen. Die KI bewertet Hook & Stil und merkt sich den Stil für den Autopiloten.</p>
+      <label class="drop"><input type="file" id="files" accept="image/*,video/*" multiple hidden><span id="fileLabel">📎 Bilder / Videos wählen</span></label>
+      <input id="note" placeholder="Optional: Worum geht es? Zielgruppe?">
+      <button id="btnAnalyze" class="primary">Analysieren</button>
+    </div>
+    <div id="analyses"></div>
+  </section>
+
+  <section id="tab-create" class="tab">
+    <div class="card">
+      <h2>KI-Video erstellen</h2>
+      <p class="muted">Thema eintippen – oder leer lassen, dann wählt die KI selbst. 9:16, mit Ton, 4K.</p>
+      <input id="topic" placeholder="Thema (optional)">
+      <div class="chips" id="platChips"></div>
+      <label class="row"><input type="checkbox" id="pubAfter"> Direkt nach Fertigstellung posten</label>
+      <button id="btnCreate" class="primary">Video generieren</button>
+    </div>
+  </section>
+
+  <section id="tab-studio" class="tab"><div id="posts"></div></section>
+
+  <section id="tab-auto" class="tab">
+    <div class="card">
+      <h2>Autopilot</h2>
+      <p class="muted">Die Maschine denkt sich selbst Themen aus, erzeugt die Videos und (optional) postet sie.</p>
+      <label class="row"><input type="checkbox" id="apOn"> Autopilot aktiv</label>
+      <input id="apNiche" placeholder="Nische, z. B. Fitness für Berufstätige">
+      <div class="grid2">
+        <label>Alle (Std.)<input id="apInterval" type="number" min="1" value="12"></label>
+        <label>Videos pro Lauf<input id="apCount" type="number" min="1" max="5" value="1"></label>
+      </div>
+      <div class="chips" id="apPlat"></div>
+      <label class="row"><input type="checkbox" id="apPublish"> Automatisch posten (sonst erst freigeben)</label>
+      <button id="btnSave" class="primary">Speichern</button>
+      <button id="btnRunNow">Jetzt einen Lauf starten</button>
+    </div>
+    <div class="card" id="platStatus"></div>
+  </section>
+</main>
+<nav>
+  <button data-tab="analyse" class="on">🔍<span>Analyse</span></button>
+  <button data-tab="create">🎬<span>Erstellen</span></button>
+  <button data-tab="studio">📱<span>Studio</span></button>
+  <button data-tab="auto">🤖<span>Autopilot</span></button>
+</nav>
+<div id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>
