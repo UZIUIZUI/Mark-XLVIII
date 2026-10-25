@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b0b10">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
+<link rel="apple-touch-icon" href="icon.svg">
+<title>Content-Maschine</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header><h1>⚡ Content-Maschine</h1><span id="badge"></span></header>
+<main>
+  <section id="tab-analyse" class="tab active">
+    <div class="card">
+      <h2>Material analysieren</h2>
+      <p class="muted">Bilder/Videos wählen (zusammen max. ~15 MB). Die KI bewertet Hook & Stil und merkt sich den Stil.</p>
+      <label class="drop"><input type="file" id="files" accept="image/*,video/*" multiple hidden><span id="fileLabel">📎 Bilder / Videos wählen</span></label>
+      <input id="note" placeholder="Optional: Worum geht es? Zielgruppe?">
+      <button id="btnAnalyze" class="primary">Analysieren</button>
+    </div>
+    <div id="analyses"></div>
+  </section>
+  <section id="tab-create" class="tab">
+    <div class="card">
+      <h2>KI-Video erstellen</h2>
+      <p class="muted">Thema eintippen – oder leer lassen, dann wählt die KI selbst. 9:16 mit Ton.</p>
+      <input id="topic" placeholder="Thema (optional)">
+      <button id="btnCreate" class="primary">Video generieren</button>
+    </div>
+  </section>
+  <section id="tab-studio" class="tab"><div id="posts"></div></section>
+  <section id="tab-auto" class="tab">
+    <div class="card">
+      <h2>Einstellungen</h2>
+      <input id="apiKey" type="password" placeholder="Gemini API-Key (aistudio.google.com/apikey)" autocomplete="off">
+      <p class="muted">Der Key bleibt nur auf diesem Handy.</p>
+      <input id="niche" placeholder="Nische, z. B. Fitness für Berufstätige">
+      <div class="grid2">
+        <label>Auflösung<select id="res"><option value="4k">4K (Fallback 1080p)</option><option value="1080p">1080p</option><option value="720p">720p</option></select></label>
+        <label>Modell<input id="vmodel" value="veo-3.1-generate-preview"></label>
+      </div>
+      <button id="btnSave" class="primary">Speichern</button>
+    </div>
+    <div class="card">
+      <h2>Autopilot</h2>
+      <p class="muted">Erzeugt automatisch Videos, solange die App geöffnet ist (Bildschirm bleibt dann an).</p>
+      <label class="row"><input type="checkbox" id="apOn"> Autopilot aktiv</label>
+      <div class="grid2">
+        <label>Alle (Min.)<input id="apInterval" type="number" min="10" value="120"></label>
+        <label>Max. Videos<input id="apMax" type="number" min="1" value="3"></label>
+      </div>
+      <button id="btnRunNow">Jetzt ein Video per Autopilot</button>
+      <p class="muted" id="apStatus"></p>
+    </div>
+  </section>
+</main>
+<nav>
+  <button data-tab="analyse" class="on">🔍<span>Analyse</span></button>
+  <button data-tab="create">🎬<span>Erstellen</span></button>
+  <button data-tab="studio">📱<span>Studio</span></button>
+  <button data-tab="auto">🤖<span>Autopilot</span></button>
+</nav>
+<div id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>

@@ -5,7 +5,19 @@ Handy-App (PWA) + Server. Zwei Modi:
 1. **Manuell:** Bilder/Videos hochladen → KI analysiert (Hook, Stärken, Schwächen, Viral-Score, Ideen) und merkt sich den Stil.
 2. **Autopilot:** Die Maschine erfindet selbst Themen, schreibt Skript + Caption + Hashtags, erzeugt ein 9:16-KI-Video mit Ton (Veo) in 4K und postet es – oder legt es zur Freigabe in die Warteschlange.
 
-## Start
+## 📱 Handy-App ohne Server (`standalone/`)
+
+Läuft komplett im Handy: Analyse und Veo-Videos direkt über deinen Gemini-Key, Daten und Videos bleiben auf dem Handy (IndexedDB). Kein PC nötig.
+
+- Veröffentlichung per Workflow `.github/workflows/pages.yml` (GitHub Pages): Adresse danach `https://<user>.github.io/<repo>/`. Im Handy-Browser öffnen → „Zum Home-Bildschirm“ (Android: „App installieren“).
+- Unter **Autopilot** den Gemini-Key eintragen.
+- **Posten** = Teilen-Menü → TikTok / Instagram wählen (Caption wird automatisch kopiert). Direkt-Upload per API gibt es nur in der Server-Version.
+- **Autopilot** läuft nur, solange die App geöffnet ist (Handy-Browser kann im Hintergrund nichts ausführen). Für echten 24/7-Betrieb die Server-Version nutzen.
+- Der Key liegt im Handy-Speicher; nutze einen eigenen Key mit Budget-Limit.
+
+---
+
+## Start (Server-Version, Vollautomatik + API-Upload)
 
 ```bash
 cd content_machine
