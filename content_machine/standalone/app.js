@@ -120,7 +120,7 @@ async function render() {
     const v = p.status === 'ready' ? `<video controls playsinline src="${await videoUrl(p.id)}"></video>` : (p.status === 'generating' ? '<p class="muted"><span class="spin">⏳</span> Veo rendert… App offen lassen</p>' : '');
     html.push(`<div class="card"><b>${esc(p.topic)}</b> ${p.source === 'autopilot' ? '<span class="pill">🤖</span>' : ''}<br><span class="pill">${STAT[p.status]}</span>${p.res ? `<span class="pill">${p.res}</span>` : ''}${v}
       <div class="cap">${esc(p.caption)}\n${esc(p.hashtags.join(' '))}</div>${p.error ? `<p class="muted">ℹ️ ${esc(p.error)}</p>` : ''}
-      ${p.status === 'ready' ? `<button class="small primary" onclick="share('${p.id}')">📲 Posten (TikTok / Instagram)</button><button class="small" onclick="copyCap('${p.id}')">📋 Caption</button><button class="small" onclick="dl('${p.id}')">⬇️ Speichern</button>` : ''}
+      ${p.status === 'ready' ? `<button class="small primary" onclick="share('${p.id}','Instagram')">📸 Instagram-Reel</button><button class="small primary" onclick="share('${p.id}','TikTok')">🎵 TikTok</button><button class="small" onclick="copyCap('${p.id}')">📋 Caption</button><button class="small" onclick="dl('${p.id}')">⬇️ Speichern</button>` : ''}
       <button class="small danger" onclick="delP('${p.id}')">🗑️</button></div>`);
   }
   $('#posts').innerHTML = html.join('') || '<p class="muted">Noch nichts erzeugt.</p>';
@@ -133,10 +133,13 @@ window.fromIdea = async (aid, n) => {
   try { await produce(i.topic); } catch (e) { toast(e.message); }
 };
 window.copyCap = async id => { await navigator.clipboard.writeText(fullCap(posts.find(p => p.id === id))); toast('Caption kopiert – in TikTok/Instagram einfügen'); };
-window.share = async id => {  // Teilen-Menue -> TikTok / Instagram App waehlen
+window.share = async (id, target = '') => {  // Teilen-Menue -> TikTok / Instagram App waehlen
   const p = posts.find(x => x.id === id), file = new File([await kvGet('video:' + id)], `${p.topic.slice(0, 30)}.mp4`, {type: 'video/mp4'});
   try { await navigator.clipboard.writeText(fullCap(p)); } catch {}
-  if (navigator.canShare?.({files: [file]})) navigator.share({files: [file], text: fullCap(p)}).catch(() => {});
+  if (navigator.canShare?.({files: [file]})) {
+    toast(`Im Menü „${target || 'App'}“ wählen${target === 'Instagram' ? ' → Reel' : ''}. Caption ist kopiert – dort einfügen.`);
+    navigator.share({files: [file], text: fullCap(p)}).catch(() => {});
+  }
   else toast('Teilen nicht unterstützt – nutze „Speichern“');
 };
 window.dl = async id => { const a = document.createElement('a'); a.href = await videoUrl(id); a.download = id + '.mp4'; a.click(); };
